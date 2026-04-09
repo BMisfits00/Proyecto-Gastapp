@@ -14,3 +14,8 @@ web-build/
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+
+# Galicia scraper - datos sensibles y outputs
+scripts/galicia/credentials.json
+scripts/galicia/output-*.json
+scripts/galicia/debug/

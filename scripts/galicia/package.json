@@ -1,0 +1,13 @@
+{
+  "name": "galicia-scraper",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "scrape":        "node scraper.mjs",
+    "scrape:headed": "node scraper.mjs --headed",
+    "scrape:debug":  "node scraper.mjs --headed --slow"
+  },
+  "dependencies": {
+    "playwright": "^1.44.0"
+  }
+}

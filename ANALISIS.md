@@ -77,20 +77,32 @@ Proyecto Gastapp/
 ├── supabase/
 │   ├── migrations/
 │   │   ├── 001_initial_schema.sql  ← Tablas, índices, triggers, RLS
-│   │   └── 002_rpc_functions.sql   ← Función update_account_balance
+│   │   ├── 002_rpc_functions.sql   ← Función update_account_balance
+│   │   └── 003_credit_cards_and_investments.sql  ← credit_cards, card_movements, extensión investments
 │   └── seed.sql                    ← 13 categorías del sistema
 │
+├── scripts/
+│   └── galicia/
+│       ├── scraper.mjs             ← Scraper Playwright del Banco Galicia
+│       ├── import-to-gastapp.mjs  ← Convierte output JSON a SQL importable
+│       └── output-YYYY-MM-DD.json ← Resultado de cada corrida del scraper
+│
 └── src/
-    ├── types/index.ts              ← Todos los tipos del dominio
+    ├── types/index.ts              ← Todos los tipos del dominio (+ CreditCard, CardMovement)
     ├── constants/colors.ts         ← Design system completo
     ├── lib/supabase.ts             ← Cliente Supabase singleton
     ├── contexts/AuthContext.tsx    ← Estado global de autenticación
     ├── navigation/                 ← Navegación (Root, Auth, App)
     ├── services/                   ← Acceso a Supabase (sin UI)
+    │   └── creditCardService.ts   ← CRUD de credit_cards y card_movements
     ├── hooks/                      ← TanStack Query wrappers
+    │   └── useAccountDetail.ts    ← Hooks para AccountDetailScreen
     ├── utils/                      ← Formatters + cálculos financieros
     ├── components/                 ← Componentes reutilizables
     └── screens/                    ← Pantallas organizadas por dominio
+        └── accounts/
+            ├── AccountsScreen.tsx  ← Lista de cuentas (ahora tappable → AccountDetail)
+            └── AccountDetailScreen.tsx  ← Vista completa con 4 tabs
 ```
 
 ---
@@ -104,9 +116,11 @@ auth.users  (Supabase nativo)
     │
     ├──► profiles          (1:1)   full_name, avatar_url, currency
     ├──► accounts          (1:N)   cuentas financieras del usuario
+    │       └──► credit_cards  (1:1)   tarjeta vinculada a la cuenta
+    │                 └──► card_movements  (1:N)   consumos de la tarjeta
     ├──► categories        (1:N)   propias + sistema (user_id IS NULL)
     ├──► transactions      (1:N)   movimientos (income / expense / transfer)
-    ├──► investments       (1:N)   inversiones (sin pantalla implementada aún)
+    ├──► investments       (1:N)   plazos fijos y otras inversiones
     └──► daily_yields      (1:N)   rendimientos diarios de billeteras virtuales
 ```
 
@@ -133,6 +147,27 @@ Todas las tablas tienen Row Level Security con la política `user_id = auth.uid(
 ### Funciones RPC
 
 `update_account_balance(p_account_id UUID, p_delta DECIMAL)` — incrementa/decrementa el balance de una cuenta atómicamente. Se llama desde `transactionService.create()` justo después del INSERT.
+
+---
+
+### Migración 003 — Tarjetas de crédito e inversiones (plazos fijos)
+
+Agrega soporte para tarjetas vinculadas a cuentas bancarias y extiende el modelo de inversiones para plazos fijos.
+
+**`credit_cards`** — Una tarjeta por cuenta bancaria.
+- Vinculada a `accounts` via `account_id`
+- Almacena: últimos 4 dígitos, marca, producto, titular, fecha de vencimiento y cierre, consumos ARS/USD del período, pago mínimo, disponible
+- `synced_at`: marca de cuándo fue sincronizada desde el banco
+
+**`card_movements`** — Consumos individuales de la tarjeta.
+- `merchant`, `amount`, `currency`, `installment` (ej: "1/3"), `type` (`credit | instalments | debit`)
+- Se reemplazan completamente en cada sync (DELETE + INSERT)
+
+**Extensión de `investments`** — Campos nuevos para plazos fijos:
+- `tna`: tasa nominal anual (ej: 22.0)
+- `term_days`: días del plazo (ej: 33)
+- `maturity_date`: fecha de vencimiento
+- `gain_amount`: ganancia estimada al vencimiento
 
 ---
 
@@ -186,10 +221,13 @@ RootNavigator  (NavigationContainer)
             │     ├── Transactions   → TransactionListScreen
             │     ├── [FAB central]  → navega a AddTransaction (modal)
             │     ├── Reports        → ReportsScreen
-            │     └── Accounts       → AccountsScreen
+            │     └── Accounts       → AccountsScreen  (tappable → AccountDetail)
             │
-            └── AddTransaction  (modal, presentation: 'modal')
-                    └── AddTransactionScreen
+            ├── AddTransaction  (modal, presentation: 'modal')
+            │       └── AddTransactionScreen
+            │
+            └── AccountDetail  (stack screen — params: accountId, accountName)
+                    └── AccountDetailScreen  (4 tabs: Ingresos, Gastos, Tarjeta, Inversiones)
 ```
 
 El botón central del tab bar es un FAB personalizado (+) que no activa una tab sino que navega al stack modal `AddTransaction`. Este es un patrón habitual en apps de finanzas.
@@ -230,6 +268,21 @@ Lista de cuentas con balance y proveedor. Tiene un modal nativo (`presentationSt
 - Saldo inicial, color (paleta de 8 colores)
 - Toggle de rendimiento diario con campo de tasa
 
+Cada tarjeta de cuenta es **tappable**: navega a `AccountDetailScreen` pasando `accountId` y `accountName`.
+
+### AccountDetailScreen
+
+Pantalla de detalle de una cuenta con **4 solapas horizontales scrollables**:
+
+| Tab | Contenido |
+|-----|-----------|
+| **Ingresos** | Total del período + breakdown por categoría (barra de progreso) + lista de transacciones `type='income'` |
+| **Gastos** | Total del período + breakdown por categoría + lista de transacciones `type='expense'` |
+| **Tarjeta** | Resumen de la Mastercard (consumos ARS/USD, vencimiento, cierre, pago mínimo, disponible) + lista de 35 consumos individuales con merchant, cuotas y moneda |
+| **Inversiones** | Totales (capital invertido + ganancia estimada) + lista de plazos fijos con TNA, días, fecha de vencimiento y badge de días restantes |
+
+Datos de cada tab se cargan con queries independientes via `useAccountDetail.ts`.
+
 ### ReportsScreen
 
 Análisis del mes actual:
@@ -262,6 +315,10 @@ defaultOptions: {
 ['transactions', '6months', userId]
 ['accounts', userId]
 ['categories', userId, type?]
+['account-transactions', accountId, type?]
+['credit-card', accountId]
+['card-movements', cardId]
+['account-investments', accountId]
 ```
 
 ### Patrón de invalidación
@@ -286,6 +343,10 @@ Cuando se crea o elimina una transacción, se invalidan tanto `['transactions']`
 | `useMetrics(transactions?)` | `useMetrics.ts` | Calcula `FinancialMetrics` + `expensesByCategory` |
 | `useMonthlyChartData(transactions?)` | `useMetrics.ts` | Calcula `MonthlyData[]` para gráficos |
 | `useAuth()` | `useAuth.ts` | `signIn` / `signUp` con estado local de loading/error |
+| `useAccountTransactions(accountId, type?)` | `useAccountDetail.ts` | Transacciones de una cuenta, filtrable por income/expense |
+| `useAccountCreditCard(accountId)` | `useAccountDetail.ts` | Tarjeta de crédito vinculada a la cuenta |
+| `useCardMovements(cardId?)` | `useAccountDetail.ts` | Consumos individuales de la tarjeta |
+| `useAccountInvestments(accountId)` | `useAccountDetail.ts` | Plazos fijos de la cuenta |
 
 ---
 
@@ -396,7 +457,7 @@ El prefijo `EXPO_PUBLIC_` hace que Expo las incluya en el bundle del cliente. No
 - **Edición de transacciones**: `TransactionListScreen` tiene un `TODO: navegar a detalle/edición` en el `onPress` de cada ítem. La pantalla de edición no existe.
 - **Balance al eliminar transacciones**: `transactionService.delete()` borra el registro pero **no llama a `update_account_balance`** con el delta inverso. El balance queda desactualizado al eliminar.
 - **`daily_yields`**: La tabla existe en la DB y hay tipos definidos, pero no hay ninguna pantalla ni lógica implementada para registrar o visualizar rendimientos diarios.
-- **`investments`**: Tabla e interfaz TypeScript definidas, pero sin pantalla ni servicio implementado.
+- **`investments`**: Tabla extendida con campos de plazo fijo (TNA, días, vencimiento). Se visualizan en `AccountDetailScreen` tab Inversiones. No hay pantalla dedicada de gestión de inversiones ni servicio de creación manual (solo se importan via script del scraper Galicia).
 
 ### Deuda técnica
 - La detección de categoría "Ocio" en `calcLeisureRatio` usa comparación por nombre (`t.category?.name === 'Ocio'`), lo que es frágil si el nombre cambia.

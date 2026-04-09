@@ -6,6 +6,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useNavigation } from '@react-navigation/native';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAccounts, useCreateAccount, useDeleteAccount } from '../../hooks/useAccounts';
 import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
@@ -13,6 +16,7 @@ import { Account, AccountType } from '../../types';
 import { formatCurrency } from '../../utils/formatters';
 import { accountService } from '../../services/accountService';
 import { Colors, FontSize, Spacing, BorderRadius, AccountColors } from '../../constants/colors';
+import { AppTabParamList, RootStackParamList } from '../../navigation/types';
 
 const PROVIDERS = ['Mercado Pago', 'Ualá', 'Brubank', 'Lemon', 'Personal Pay', 'Banco Nación', 'Santander', 'Galicia', 'Efectivo'];
 const ACCOUNT_TYPES: { type: AccountType; label: string; icon: string }[] = [
@@ -22,6 +26,8 @@ const ACCOUNT_TYPES: { type: AccountType; label: string; icon: string }[] = [
 ];
 
 export function AccountsScreen() {
+  const tabNav = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
+  const stackNav = tabNav.getParent<NativeStackNavigationProp<RootStackParamList>>();
   const { data: accounts, refetch } = useAccounts();
   const { mutate: createAccount, isPending } = useCreateAccount();
   const { mutate: deleteAccount } = useDeleteAccount();
@@ -101,7 +107,12 @@ export function AccountsScreen() {
 
         {/* Lista de cuentas */}
         {accounts?.map((acc) => (
-          <View key={acc.id} style={styles.accountCard}>
+          <TouchableOpacity
+            key={acc.id}
+            style={styles.accountCard}
+            onPress={() => stackNav?.navigate('AccountDetail', { accountId: acc.id, accountName: acc.name })}
+            activeOpacity={0.75}
+          >
             <View style={[styles.accountIcon, { backgroundColor: (acc.color ?? Colors.primary) + '25' }]}>
               <Ionicons name={typeIcon(acc.type) as any} size={24} color={acc.color ?? Colors.primary} />
             </View>
@@ -114,11 +125,14 @@ export function AccountsScreen() {
             </View>
             <View style={styles.accountRight}>
               <Text style={styles.accountBalance}>{formatCurrency(acc.balance, acc.currency)}</Text>
-              <TouchableOpacity onPress={() => handleDelete(acc)} style={styles.deleteBtn}>
-                <Ionicons name="trash-outline" size={16} color={Colors.textMuted} />
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: Spacing.sm, alignItems: 'center', marginTop: 4 }}>
+                <TouchableOpacity onPress={() => handleDelete(acc)} style={styles.deleteBtn}>
+                  <Ionicons name="trash-outline" size={16} color={Colors.textMuted} />
+                </TouchableOpacity>
+                <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+              </View>
             </View>
-          </View>
+          </TouchableOpacity>
         ))}
 
         {(!accounts || accounts.length === 0) && (

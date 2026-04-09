@@ -7,21 +7,12 @@ import { TransactionListScreen } from '../screens/transactions/TransactionListSc
 import { AddTransactionScreen } from '../screens/transactions/AddTransactionScreen';
 import { ReportsScreen } from '../screens/reports/ReportsScreen';
 import { AccountsScreen } from '../screens/accounts/AccountsScreen';
+import { AccountDetailScreen } from '../screens/accounts/AccountDetailScreen';
 import { Colors, BorderRadius } from '../constants/colors';
 import { Ionicons } from '@expo/vector-icons';
+import { AppTabParamList, RootStackParamList } from './types';
 
-export type AppTabParamList = {
-  Dashboard: undefined;
-  Transactions: undefined;
-  AddTab: undefined;
-  Reports: undefined;
-  Accounts: undefined;
-};
-
-export type RootStackParamList = {
-  Tabs: undefined;
-  AddTransaction: undefined;
-};
+export type { AppTabParamList, RootStackParamList };
 
 const Tab = createBottomTabNavigator<AppTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -116,6 +107,11 @@ export function AppNavigator() {
           presentation: 'modal',
           contentStyle: { backgroundColor: Colors.background },
         }}
+      />
+      <Stack.Screen
+        name="AccountDetail"
+        component={AccountDetailScreen}
+        options={{ headerShown: false }}
       />
     </Stack.Navigator>
   );
