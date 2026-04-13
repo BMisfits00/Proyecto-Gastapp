@@ -47,7 +47,7 @@ export default function ReportsPage() {
 
   const byCat: Record<string, { name: string; total: number }> = {};
   currentMonthExpenses.forEach(t => {
-    const cat = (t.category as any)?.name || 'Sin categoría';
+    const cat = t.category?.name || 'Sin categoría';
     if (!byCat[cat]) byCat[cat] = { name: cat, total: 0 };
     byCat[cat].total += Number(t.amount);
   });
@@ -66,8 +66,8 @@ export default function ReportsPage() {
   const lineData = Object.entries(monthlyMap).sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => v);
 
   // Tasa de ahorro mensual
-  const monthlyIncome = transactions.filter(t => t.type === 'income' && new Date(t.date).getMonth() === now.getMonth()).reduce((s, t) => s + Number(t.amount), 0);
-  const monthlyExpense = transactions.filter(t => t.type === 'expense' && new Date(t.date).getMonth() === now.getMonth()).reduce((s, t) => s + Number(t.amount), 0);
+  const monthlyIncome = transactions.filter(t => t.type === 'income' && new Date(t.date).getMonth() === now.getMonth() && new Date(t.date).getFullYear() === now.getFullYear()).reduce((s, t) => s + Number(t.amount), 0);
+  const monthlyExpense = transactions.filter(t => t.type === 'expense' && new Date(t.date).getMonth() === now.getMonth() && new Date(t.date).getFullYear() === now.getFullYear()).reduce((s, t) => s + Number(t.amount), 0);
   const savingsRate = monthlyIncome > 0 ? ((monthlyIncome - monthlyExpense) / monthlyIncome) * 100 : 0;
 
   if (loading) return <div className="flex items-center justify-center h-full min-h-screen"><p className="text-[#8888AA]">Cargando...</p></div>;

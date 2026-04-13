@@ -24,14 +24,22 @@ export default function AccountsPage() {
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ name: '', type: 'bank' as AccountType, provider: '', balance: '', has_daily_yield: false, daily_yield_rate: '' });
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    async function load() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase.from('accounts').select('*').eq('user_id', user.id).eq('is_active', true).order('created_at');
+      setAccounts(data || []);
+      setLoading(false);
+    }
+    load();
+  }, []);
 
-  async function load() {
+  async function refresh() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     const { data } = await supabase.from('accounts').select('*').eq('user_id', user.id).eq('is_active', true).order('created_at');
     setAccounts(data || []);
-    setLoading(false);
   }
 
   async function handleCreate(e: React.FormEvent) {
@@ -52,7 +60,7 @@ export default function AccountsPage() {
 
     setShowForm(false);
     setForm({ name: '', type: 'bank', provider: '', balance: '', has_daily_yield: false, daily_yield_rate: '' });
-    load();
+    refresh();
   }
 
   const fmt = (n: number) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n);
@@ -123,7 +131,7 @@ export default function AccountsPage() {
               </div>
               <div>
                 <label className="block text-sm text-[#8888AA] mb-1">Tipo</label>
-                <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value as AccountType }))}
+                <select title="Tipo de cuenta" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value as AccountType }))}
                   className="w-full bg-[#252540] border border-[#2A2A45] rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#7B68EE]">
                   <option value="bank">Banco</option>
                   <option value="virtual_wallet">Billetera virtual</option>

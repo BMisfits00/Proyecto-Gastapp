@@ -23,26 +23,34 @@ export default function TransactionsPage() {
     category_id: '',
   });
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    async function load() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
 
-  async function load() {
+      const [{ data: txs }, { data: accs }, { data: cats }] = await Promise.all([
+        supabase.from('transactions').select('*, category:categories(*), account:accounts(*)').eq('user_id', user.id).order('date', { ascending: false }).limit(100),
+        supabase.from('accounts').select('*').eq('user_id', user.id).eq('is_active', true),
+        supabase.from('categories').select('*').or(`user_id.eq.${user.id},user_id.is.null`),
+      ]);
+
+      setTransactions(txs || []);
+      setAccounts(accs || []);
+      setCategories(cats || []);
+      if (accs && accs.length > 0) setForm(f => ({ ...f, account_id: accs[0].id }));
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  async function refreshTransactions() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-
-    const [{ data: txs }, { data: accs }, { data: cats }] = await Promise.all([
-      supabase.from('transactions').select('*, category:categories(*), account:accounts(*)').eq('user_id', user.id).order('date', { ascending: false }).limit(100),
-      supabase.from('accounts').select('*').eq('user_id', user.id).eq('is_active', true),
-      supabase.from('categories').select('*').or(`user_id.eq.${user.id},user_id.is.null`),
-    ]);
-
+    const { data: txs } = await supabase.from('transactions').select('*, category:categories(*), account:accounts(*)').eq('user_id', user.id).order('date', { ascending: false }).limit(100);
     setTransactions(txs || []);
-    setAccounts(accs || []);
-    setCategories(cats || []);
-    if (accs && accs.length > 0) setForm(f => ({ ...f, account_id: accs[0].id }));
-    setLoading(false);
   }
 
-  async function handleCreate(e: React.FormEvent) {
+  async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -60,7 +68,7 @@ export default function TransactionsPage() {
 
     setShowForm(false);
     setForm(f => ({ ...f, amount: '', description: '', category_id: '' }));
-    load();
+    refreshTransactions();
   }
 
   const fmt = (n: number) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n);
@@ -81,6 +89,7 @@ export default function TransactionsPage() {
           <p className="text-[#8888AA] text-sm mt-1">{filtered.length} movimientos</p>
         </div>
         <button
+          type="button"
           onClick={() => setShowForm(true)}
           className="flex items-center gap-2 bg-[#7B68EE] hover:bg-[#9B8FFF] text-white px-5 py-2.5 rounded-xl font-medium text-sm transition-colors"
         >
@@ -102,6 +111,7 @@ export default function TransactionsPage() {
         <div className="flex bg-[#1A1A2E] border border-[#2A2A45] rounded-xl overflow-hidden">
           {(['all', 'income', 'expense'] as const).map(f => (
             <button
+              type="button"
               key={f}
               onClick={() => setFilter(f)}
               className={`px-4 py-2.5 text-sm font-medium transition-colors ${filter === f ? 'bg-[#7B68EE] text-white' : 'text-[#8888AA] hover:text-white'}`}
@@ -133,10 +143,10 @@ export default function TransactionsPage() {
                   <td className="px-6 py-4 text-white text-sm">{t.description || '—'}</td>
                   <td className="px-6 py-4">
                     <span className="text-xs bg-[#252540] text-[#8888AA] px-2 py-1 rounded-lg">
-                      {(t.category as any)?.name || '—'}
+                      {t.category?.name || '—'}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-[#8888AA] text-sm">{(t.account as any)?.name || '—'}</td>
+                  <td className="px-6 py-4 text-[#8888AA] text-sm">{t.account?.name || '—'}</td>
                   <td className="px-6 py-4 text-[#8888AA] text-sm">{t.date}</td>
                   <td className={`px-6 py-4 text-sm font-semibold ${t.type === 'income' ? 'text-[#00D4AA]' : 'text-[#FF6B6B]'}`}>
                     {t.type === 'income' ? '+' : '-'}{fmt(Number(t.amount))}
@@ -178,7 +188,7 @@ export default function TransactionsPage() {
 
               <div>
                 <label className="block text-sm text-[#8888AA] mb-1">Cuenta</label>
-                <select value={form.account_id} onChange={e => setForm(f => ({ ...f, account_id: e.target.value }))} required
+                <select title="Cuenta" value={form.account_id} onChange={e => setForm(f => ({ ...f, account_id: e.target.value }))} required
                   className="w-full bg-[#252540] border border-[#2A2A45] rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#7B68EE]">
                   {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
@@ -186,7 +196,7 @@ export default function TransactionsPage() {
 
               <div>
                 <label className="block text-sm text-[#8888AA] mb-1">Categoría</label>
-                <select value={form.category_id} onChange={e => setForm(f => ({ ...f, category_id: e.target.value }))}
+                <select title="Categoría" value={form.category_id} onChange={e => setForm(f => ({ ...f, category_id: e.target.value }))}
                   className="w-full bg-[#252540] border border-[#2A2A45] rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#7B68EE]">
                   <option value="">Sin categoría</option>
                   {filteredCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}

@@ -356,9 +356,8 @@ function SummaryCard({ amount, label, color, bg, icon }: {
 function groupByCategory(transactions: Transaction[]) {
   const map: Record<string, { name: string; color: string; total: number }> = {};
   transactions.forEach(t => {
-    const cat = t.category as any;
-    const id  = cat?.id ?? 'sin-categoria';
-    if (!map[id]) map[id] = { name: cat?.name ?? 'Sin categoría', color: cat?.color ?? '#55556A', total: 0 };
+    const id = t.category?.id ?? 'sin-categoria';
+    if (!map[id]) map[id] = { name: t.category?.name ?? 'Sin categoría', color: t.category?.color ?? '#55556A', total: 0 };
     map[id].total += Number(t.amount);
   });
   return Object.values(map).sort((a, b) => b.total - a.total);
@@ -414,7 +413,7 @@ function TransactionTable({ transactions, type }: { transactions: Transaction[];
                 <td className="px-6 py-3 text-white text-sm max-w-xs truncate">{t.description || '—'}</td>
                 <td className="px-6 py-3">
                   <span className="text-xs bg-[#252540] text-[#8888AA] px-2 py-1 rounded-lg">
-                    {(t.category as any)?.name || '—'}
+                    {t.category?.name || '—'}
                   </span>
                 </td>
                 <td className="px-6 py-3 text-[#8888AA] text-sm">{fmtDate(t.date)}</td>
