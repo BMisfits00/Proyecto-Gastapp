@@ -101,7 +101,10 @@ export interface CardMovement {
   currency: string;
   installment: string | null;
   type: CardMovementType;
+  category_id: string | null;
   created_at: string;
+  // Joined
+  category?: Category;
 }
 
 export interface FinancialMetrics {

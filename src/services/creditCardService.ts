@@ -16,12 +16,36 @@ export const creditCardService = {
   async getMovements(cardId: string): Promise<CardMovement[]> {
     const { data, error } = await supabase
       .from('card_movements')
-      .select('*')
+      .select('*, category:categories(id,name,color,icon)')
       .eq('card_id', cardId)
       .order('date', { ascending: false });
 
     if (error) throw error;
     return data as CardMovement[];
+  },
+
+  async assignCategory(
+    movementId: string,
+    categoryId: string | null,
+    merchant: string,
+    cardId: string,
+  ): Promise<void> {
+    const { error } = await supabase
+      .from('card_movements')
+      .update({ category_id: categoryId })
+      .eq('id', movementId);
+    if (error) throw error;
+
+    // Auto-asignar la misma categoría a movimientos del mismo comercio sin categoría
+    if (categoryId) {
+      const { error: err2 } = await supabase
+        .from('card_movements')
+        .update({ category_id: categoryId })
+        .eq('card_id', cardId)
+        .eq('merchant', merchant)
+        .is('category_id', null);
+      if (err2) throw err2;
+    }
   },
 
   async upsertCard(

@@ -12,16 +12,20 @@ El proyecto es un **MVP funcional en desarrollo activo**. Hay pantallas completa
 
 | Capa | Tecnología |
 |------|------------|
-| Framework | React Native 0.81 + Expo SDK 54 |
+| Framework mobile | React Native 0.81 + Expo SDK 54 |
+| Framework web | Next.js 16.2 (App Router, Turbopack) |
 | Lenguaje | TypeScript (modo `strict`) |
 | Backend | Supabase — PostgreSQL + Auth + RLS |
-| Navegación | React Navigation v6 (Stack + Bottom Tabs) |
+| Navegación (mobile) | React Navigation v6 (Stack + Bottom Tabs) |
 | Estado del servidor | TanStack Query v5 (React Query) |
 | Autenticación biométrica | expo-local-authentication (Face ID) |
 | Almacenamiento seguro | expo-secure-store |
-| Gráficos | react-native-chart-kit (BarChart, LineChart, PieChart) |
+| Gráficos (mobile) | react-native-chart-kit (BarChart, LineChart, PieChart) |
+| Gráficos (web) | Recharts |
 | Gradientes | expo-linear-gradient |
 | Gestos | react-native-gesture-handler + react-native-reanimated |
+| Estilos (web) | Tailwind CSS v4 |
+| Scraper | Playwright (Node.js) — Banco Galicia |
 
 No hay backend propio: **todo el acceso a datos va exclusivamente a través del cliente JS de Supabase**.
 
@@ -67,28 +71,52 @@ Los servicios no importan hooks ni componentes. Los hooks no llaman a Supabase d
 
 ```
 Proyecto Gastapp/
-├── App.tsx                          ← Punto de entrada, monta todos los providers
+├── App.tsx                          ← Punto de entrada Expo, monta todos los providers
 ├── index.js                         ← Entry point de Expo
 ├── app.json                         ← Config Expo (nombre, orientación, plugins, bundle IDs)
 ├── babel.config.js                  ← babel-preset-expo + reanimated plugin
 ├── tsconfig.json                    ← Alias @/* → src/*
 ├── .env / .env.example              ← Variables EXPO_PUBLIC_SUPABASE_*
 │
+├── packages/
+│   └── shared/
+│       └── index.ts                ← Tipos compartidos entre mobile y web
+│                                      (Account, Transaction, CreditCard, CardMovement, etc.)
+│
 ├── supabase/
 │   ├── migrations/
-│   │   ├── 001_initial_schema.sql  ← Tablas, índices, triggers, RLS
+│   │   ├── 001_initial_schema.sql  ← Tablas base, índices, triggers, RLS
 │   │   ├── 002_rpc_functions.sql   ← Función update_account_balance
-│   │   └── 003_credit_cards_and_investments.sql  ← credit_cards, card_movements, extensión investments
+│   │   ├── 003_credit_cards_and_investments.sql  ← credit_cards, card_movements, investments
+│   │   └── 004_card_movements_category.sql       ← category_id en card_movements
 │   └── seed.sql                    ← 13 categorías del sistema
 │
 ├── scripts/
 │   └── galicia/
-│       ├── scraper.mjs             ← Scraper Playwright del Banco Galicia
-│       ├── import-to-gastapp.mjs  ← Convierte output JSON a SQL importable
+│       ├── scraper.mjs             ← Scraper Playwright del Banco Galicia (headless/headed)
+│       ├── import-to-gastapp.mjs  ← Convierte output JSON a SQL importable (legacy)
+│       ├── credentials.json        ← Credenciales del banco (no commitear)
 │       └── output-YYYY-MM-DD.json ← Resultado de cada corrida del scraper
 │
-└── src/
-    ├── types/index.ts              ← Todos los tipos del dominio (+ CreditCard, CardMovement)
+├── web/                            ← Aplicación web (Next.js 16)
+│   ├── app/
+│   │   ├── (app)/                  ← Rutas autenticadas
+│   │   │   ├── accounts/
+│   │   │   │   ├── page.tsx        ← Lista de cuentas
+│   │   │   │   └── [id]/page.tsx   ← Detalle de cuenta (4 tabs con filtros avanzados)
+│   │   │   ├── transactions/page.tsx
+│   │   │   └── reports/page.tsx
+│   │   ├── api/
+│   │   │   └── scrape/galicia/route.ts  ← API route que ejecuta el scraper + importa datos
+│   │   ├── login/
+│   │   └── layout.tsx
+│   ├── lib/
+│   │   ├── supabase.ts             ← Cliente browser (createBrowserClient)
+│   │   └── types.ts                ← Re-exporta desde @gastapp/shared
+│   └── .env.local                  ← NEXT_PUBLIC_SUPABASE_URL + ANON_KEY
+│
+└── src/                            ← App mobile (Expo/React Native)
+    ├── types/index.ts              ← Tipos del dominio mobile
     ├── constants/colors.ts         ← Design system completo
     ├── lib/supabase.ts             ← Cliente Supabase singleton
     ├── contexts/AuthContext.tsx    ← Estado global de autenticación
@@ -101,8 +129,8 @@ Proyecto Gastapp/
     ├── components/                 ← Componentes reutilizables
     └── screens/                    ← Pantallas organizadas por dominio
         └── accounts/
-            ├── AccountsScreen.tsx  ← Lista de cuentas (ahora tappable → AccountDetail)
-            └── AccountDetailScreen.tsx  ← Vista completa con 4 tabs
+            ├── AccountsScreen.tsx
+            └── AccountDetailScreen.tsx
 ```
 
 ---
@@ -161,13 +189,21 @@ Agrega soporte para tarjetas vinculadas a cuentas bancarias y extiende el modelo
 
 **`card_movements`** — Consumos individuales de la tarjeta.
 - `merchant`, `amount`, `currency`, `installment` (ej: "1/3"), `type` (`credit | instalments | debit`)
-- Se reemplazan completamente en cada sync (DELETE + INSERT)
+- Se reemplazan completamente en cada sync (DELETE + INSERT con auto-categorización)
 
 **Extensión de `investments`** — Campos nuevos para plazos fijos:
 - `tna`: tasa nominal anual (ej: 22.0)
 - `term_days`: días del plazo (ej: 33)
 - `maturity_date`: fecha de vencimiento
 - `gain_amount`: ganancia estimada al vencimiento
+
+### Migración 004 — Categorías en movimientos de tarjeta
+
+Agrega `category_id UUID REFERENCES categories(id)` a `card_movements`. Permite asignar categorías a los consumos de tarjeta de crédito de forma manual desde la UI web, con auto-categorización automática en las próximas sincronizaciones basada en el historial de asignaciones por merchant.
+
+### Migración 005 — Categorías ocultas por usuario
+
+Crea la tabla `user_hidden_categories(user_id, category_id)` con RLS estricta (`user_id = auth.uid()`). Permite que cada usuario oculte categorías del sistema (`user_id IS NULL`) sin afectar a otros usuarios ni violar las políticas RLS existentes sobre la tabla `categories`. Las categorías ocultas se excluyen en todas las queries de `categoryService.getAll()`.
 
 ---
 
@@ -294,6 +330,73 @@ Análisis del mes actual:
 ### LoginScreen / RegisterScreen
 
 Formulario estándar con manejo de estado local. `LoginScreen` incluye el botón de Face ID (parcialmente funcional). Los errores de Supabase Auth se muestran en un banner rojo.
+
+---
+
+## Aplicación web (Next.js)
+
+La web es una segunda interfaz para Gastapp, pensada para uso en escritorio. Comparte la misma base de datos Supabase que la app mobile.
+
+### Rutas
+
+| Ruta | Descripción |
+|------|-------------|
+| `/` | Redirect a `/accounts` |
+| `/login` | Autenticación (email + password) |
+| `/accounts` | Lista de cuentas activas del usuario |
+| `/accounts/[id]` | Detalle de cuenta con 4 tabs y filtros avanzados |
+| `/transactions` | Lista de transacciones con filtros |
+| `/reports` | Reportes mensuales con gráficos (Recharts) |
+
+### Detalle de cuenta web (`/accounts/[id]`)
+
+Replica y extiende `AccountDetailScreen` con funcionalidades adicionales:
+
+**Filtros disponibles en Ingresos, Gastos y Tarjeta:**
+- **Año** — dropdown derivado de los datos disponibles; al cambiar resetea el mes
+- **Mes** — dropdown filtrado por el año seleccionado
+- **Rango de fechas** — calendar picker con selección de día único o rango:
+  - Vista días con navegación mes/año
+  - Click en nombre de mes → vista selector de mes
+  - Click en año → vista selector de año
+  - Hover preview del rango al seleccionar el segundo extremo
+- **Categoría** — dropdown con todas las categorías del usuario (solo en Ingresos y Gastos) o todas las categorías (en Tarjeta)
+
+Los filtros se aplican en cadena (AND): año/mes → rango → categoría.
+
+**Tab Tarjeta — funcionalidades extra:**
+- Botón **"Sincronizar Galicia"** que ejecuta el scraper via API route y actualiza los datos en Supabase
+- **Asignación manual de categorías**: cada fila de consumo tiene un picker inline clickeable
+  - Muestra `+ Asignar` si no tiene categoría, o el nombre con punto de color si tiene
+  - Dropdown con todas las categorías + opción "Quitar categoría"
+  - Opción **"+ Nueva categoría"** que abre un modal
+  - Opción **"Ocultar categoría"** (×) visible al hacer hover sobre cada ítem — persiste via `user_hidden_categories`
+- **Modal crear categoría**: nombre, tipo (Gasto/Ingreso), selector de 8 colores preset
+  - La categoría nueva aparece inmediatamente en todos los pickers sin recargar
+
+**Tabs Ingresos y Gastos — funcionalidades añadidas:**
+- **Paginador** de 10 items por página al pie de la tabla de movimientos
+- **Asignación inline de categorías**: igual que en Tarjeta — picker con flip automático hacia arriba cuando no hay espacio
+- **Ocultar categorías** desde el picker (× al hover) con persistencia en `user_hidden_categories`
+- La categoría oculta desaparece inmediatamente del picker sin recargar
+
+**Comportamiento del dropdown de categorías:**
+- Detecta espacio disponible debajo del botón trigger al abrirse (`getBoundingClientRect`)
+- Si hay menos de 260 px de espacio, el panel se despliega hacia arriba (`bottom-full`) en lugar de hacia abajo (`top-full`)
+
+### API Route: `POST /api/scrape/galicia`
+
+Ejecuta el scraper de Banco Galicia y sincroniza los datos con Supabase:
+
+1. Verifica existencia de `scripts/galicia/credentials.json`
+2. Obtiene el usuario autenticado desde la cookie de sesión
+3. Ejecuta `node scraper.mjs` como subprocess (timeout: 5 minutos)
+4. Lee el JSON generado (`output-YYYY-MM-DD.json`)
+5. **Auto-categorización**: construye un mapa `merchant (lowercase) → category_id` desde los movimientos existentes con categoría asignada
+6. Hace upsert de `credit_cards` (por `account_id + user_id`)
+7. Elimina los movimientos anteriores e inserta los nuevos con `category_id` aplicado automáticamente donde el merchant coincide
+
+Respuesta: `{ ok: true, cardLastDigits, movementsCount }` o `{ error: string }`.
 
 ---
 
@@ -452,19 +555,23 @@ El prefijo `EXPO_PUBLIC_` hace que Expo las incluya en el bundle del cliente. No
 
 ## Limitaciones conocidas y TODOs pendientes
 
-### Funcionalidad incompleta
+### Funcionalidad incompleta (mobile)
 - **Face ID sin sesión guardada**: `LoginScreen` llama a `authenticateAsync()` pero no recupera credenciales guardadas. Falta integrar `expo-secure-store` para guardar/leer el email+password o token.
 - **Edición de transacciones**: `TransactionListScreen` tiene un `TODO: navegar a detalle/edición` en el `onPress` de cada ítem. La pantalla de edición no existe.
 - **Balance al eliminar transacciones**: `transactionService.delete()` borra el registro pero **no llama a `update_account_balance`** con el delta inverso. El balance queda desactualizado al eliminar.
 - **`daily_yields`**: La tabla existe en la DB y hay tipos definidos, pero no hay ninguna pantalla ni lógica implementada para registrar o visualizar rendimientos diarios.
-- **`investments`**: Tabla extendida con campos de plazo fijo (TNA, días, vencimiento). Se visualizan en `AccountDetailScreen` tab Inversiones. No hay pantalla dedicada de gestión de inversiones ni servicio de creación manual (solo se importan via script del scraper Galicia).
+- **`investments`**: Se visualizan en el tab Inversiones pero no hay pantalla de gestión ni creación manual (solo via scraper).
+
+### Funcionalidad incompleta (web)
+- **Edición y eliminación de transacciones**: la tabla de transacciones es solo lectura.
+- **Auto-categorización del scraper en transacciones de cuenta**: el script `import-to-gastapp.mjs` categoriza por reglas fijas en código; no usa el historial de asignaciones del usuario.
 
 ### Deuda técnica
 - La detección de categoría "Ocio" en `calcLeisureRatio` usa comparación por nombre (`t.category?.name === 'Ocio'`), lo que es frágil si el nombre cambia.
 - `AddTransactionScreen` hardcodea la moneda `'ARS'` — no aprovecha el campo `currency` del modelo.
 - No hay suite de tests configurada.
-- No hay script de lint en `package.json`.
 - La paginación en `useAllTransactions` está implementada en el servicio pero la pantalla siempre pide `page=0` (no hay scroll infinito).
+- El scraper usa DELETE + INSERT en cada sync, lo que destruye y recrea todos los movimientos. Si Supabase tuviera FK externas a `card_movements`, esto fallaría.
 
 ---
 

@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, RefreshControl,
+  ActivityIndicator, RefreshControl, Modal, FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useQueryClient } from '@tanstack/react-query';
 import { RootStackParamList } from '../../navigation/types';
 import { useAccounts } from '../../hooks/useAccounts';
 import {
@@ -14,13 +15,19 @@ import {
   useCardMovements,
   useAccountInvestments,
 } from '../../hooks/useAccountDetail';
+import { useCategories } from '../../hooks/useCategories';
+import { creditCardService } from '../../services/creditCardService';
+import { categoryService } from '../../services/categoryService';
+import { useAuthContext } from '../../contexts/AuthContext';
 import { Colors, FontSize, Spacing, BorderRadius } from '../../constants/colors';
 import { formatCurrency, formatDate, formatRelativeDate } from '../../utils/formatters';
-import { Transaction, CardMovement, Investment } from '../../types';
+import { Transaction, CardMovement, Investment, Category } from '../../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AccountDetail'>;
 
 type Tab = 'income' | 'expense' | 'card' | 'investments';
+
+const PAGE_SIZE = 10;
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'income',      label: 'Ingresos',    icon: 'arrow-down-circle-outline' },
@@ -113,6 +120,7 @@ export function AccountDetailScreen({ route, navigation }: Props) {
 // ─── Tab: Ingresos ────────────────────────────────────────────────────────────
 
 function IncomeTab({ transactions }: { transactions: Transaction[] }) {
+  const [page, setPage] = useState(0);
   const total = transactions.reduce((s, t) => s + t.amount, 0);
 
   const byCategory = transactions.reduce<Record<string, { name: string; color: string; total: number }>>((acc, t) => {
@@ -122,13 +130,16 @@ function IncomeTab({ transactions }: { transactions: Transaction[] }) {
     return acc;
   }, {});
 
+  const paged = transactions.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
   return (
     <>
       <SummaryCard amount={total} label="Total ingresos" color={Colors.income} icon="arrow-down-circle" />
       <CategoryBreakdown items={Object.values(byCategory)} total={total} />
-      <SectionTitle title="Movimientos" />
+      <SectionTitle title={`Movimientos (${transactions.length})`} />
       {transactions.length === 0 && <EmptyState text="Sin ingresos registrados" />}
-      {transactions.map((t) => <TransactionRow key={t.id} transaction={t} />)}
+      {paged.map((t) => <TransactionRow key={t.id} transaction={t} />)}
+      <Paginator page={page} total={transactions.length} onPrev={() => setPage(p => p - 1)} onNext={() => setPage(p => p + 1)} />
     </>
   );
 }
@@ -136,6 +147,7 @@ function IncomeTab({ transactions }: { transactions: Transaction[] }) {
 // ─── Tab: Gastos ──────────────────────────────────────────────────────────────
 
 function ExpenseTab({ transactions }: { transactions: Transaction[] }) {
+  const [page, setPage] = useState(0);
   const total = transactions.reduce((s, t) => s + t.amount, 0);
 
   const byCategory = transactions.reduce<Record<string, { name: string; color: string; total: number }>>((acc, t) => {
@@ -145,13 +157,16 @@ function ExpenseTab({ transactions }: { transactions: Transaction[] }) {
     return acc;
   }, {});
 
+  const paged = transactions.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
   return (
     <>
       <SummaryCard amount={total} label="Total gastos" color={Colors.expense} icon="arrow-up-circle" />
       <CategoryBreakdown items={Object.values(byCategory)} total={total} />
-      <SectionTitle title="Movimientos" />
+      <SectionTitle title={`Movimientos (${transactions.length})`} />
       {transactions.length === 0 && <EmptyState text="Sin gastos registrados" />}
-      {transactions.map((t) => <TransactionRow key={t.id} transaction={t} />)}
+      {paged.map((t) => <TransactionRow key={t.id} transaction={t} />)}
+      <Paginator page={page} total={transactions.length} onPrev={() => setPage(p => p - 1)} onNext={() => setPage(p => p + 1)} />
     </>
   );
 }
@@ -159,12 +174,38 @@ function ExpenseTab({ transactions }: { transactions: Transaction[] }) {
 // ─── Tab: Tarjeta ─────────────────────────────────────────────────────────────
 
 function CardTab({ card, movements }: { card: any | null; movements: CardMovement[] }) {
+  const { user } = useAuthContext();
+  const { data: rawCategories = [], refetch: refetchCats } = useCategories('expense');
+  const [localCats, setLocalCats] = useState<Category[] | null>(null);
+  const categories = localCats ?? rawCategories;
+  const queryClient = useQueryClient();
+  const [selectedMovement, setSelectedMovement] = useState<CardMovement | null>(null);
+  const [page, setPage] = useState(0);
+
   if (!card) {
     return <EmptyState text="No hay tarjeta de crédito asociada a esta cuenta" icon="card-outline" />;
   }
 
   const totalARS = movements.filter((m) => m.currency === 'ARS').reduce((s, m) => s + m.amount, 0);
   const totalUSD = movements.filter((m) => m.currency === 'USD').reduce((s, m) => s + m.amount, 0);
+
+  const handleAssign = async (category: Category | null) => {
+    if (!selectedMovement) return;
+    setSelectedMovement(null);
+    await creditCardService.assignCategory(
+      selectedMovement.id,
+      category?.id ?? null,
+      selectedMovement.merchant,
+      card.id,
+    );
+    queryClient.invalidateQueries({ queryKey: ['card-movements', card.id] });
+  };
+
+  const handleHideCategory = async (cat: Category) => {
+    if (!user) return;
+    await categoryService.hide(user.id, cat.id);
+    setLocalCats(prev => (prev ?? rawCategories).filter(c => c.id !== cat.id));
+  };
 
   return (
     <>
@@ -210,8 +251,121 @@ function CardTab({ card, movements }: { card: any | null; movements: CardMovemen
 
       <SectionTitle title={`Consumos (${movements.length})`} />
       {movements.length === 0 && <EmptyState text="Sin consumos registrados" />}
-      {movements.map((m) => <CardMovementRow key={m.id} movement={m} />)}
+      {movements.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((m) => (
+        <CardMovementRow key={m.id} movement={m} onPress={() => setSelectedMovement(m)} />
+      ))}
+      <Paginator page={page} total={movements.length} onPrev={() => setPage(p => p - 1)} onNext={() => setPage(p => p + 1)} />
+
+      <CategoryPickerModal
+        visible={!!selectedMovement}
+        movement={selectedMovement}
+        categories={categories}
+        onSelect={handleAssign}
+        onHide={handleHideCategory}
+        onClose={() => setSelectedMovement(null)}
+      />
     </>
+  );
+}
+
+// ─── Modal selector de categoría ──────────────────────────────────────────────
+
+function CategoryPickerModal({
+  visible,
+  movement,
+  categories,
+  onSelect,
+  onHide,
+  onClose,
+}: {
+  visible: boolean;
+  movement: CardMovement | null;
+  categories: Category[];
+  onSelect: (cat: Category | null) => void;
+  onHide: (cat: Category) => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={onClose}>
+        <View style={styles.modalSheet}>
+          <View style={styles.modalHandle} />
+          <Text style={styles.modalTitle} numberOfLines={1}>{movement?.merchant ?? ''}</Text>
+          <Text style={styles.modalSubtitle}>Seleccioná una categoría</Text>
+
+          <FlatList
+            data={categories}
+            keyExtractor={(c) => c.id}
+            showsVerticalScrollIndicator={false}
+            ListHeaderComponent={
+              <TouchableOpacity style={styles.categoryOption} onPress={() => onSelect(null)}>
+                <View style={[styles.categoryOptionIcon, { backgroundColor: Colors.border }]}>
+                  <Ionicons name="close-outline" size={18} color={Colors.textMuted} />
+                </View>
+                <Text style={[styles.categoryOptionName, { color: Colors.textMuted }]}>Sin categoría</Text>
+              </TouchableOpacity>
+            }
+            renderItem={({ item: cat }) => (
+              <View style={[styles.categoryOption, movement?.category_id === cat.id && styles.categoryOptionSelected]}>
+                <TouchableOpacity style={styles.categoryOptionMain} onPress={() => onSelect(cat)}>
+                  <View style={[styles.categoryOptionIcon, { backgroundColor: (cat.color ?? Colors.primary) + '30' }]}>
+                    <Ionicons name={(cat.icon ?? 'pricetag-outline') as any} size={18} color={cat.color ?? Colors.primary} />
+                  </View>
+                  <Text style={styles.categoryOptionName}>{cat.name}</Text>
+                  {movement?.category_id === cat.id && (
+                    <Ionicons name="checkmark" size={18} color={Colors.primary} style={{ marginLeft: 'auto' }} />
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => onHide(cat)}
+                  style={styles.categoryOptionDelete}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="trash-outline" size={15} color={Colors.expense + 'AA'} />
+                </TouchableOpacity>
+              </View>
+            )}
+          />
+        </View>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
+// ─── Paginador ────────────────────────────────────────────────────────────────
+
+function Paginator({ page, total, onPrev, onNext }: {
+  page: number; total: number; onPrev: () => void; onNext: () => void;
+}) {
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  if (totalPages <= 1) return null;
+  const isFirst = page === 0;
+  const isLast  = page >= totalPages - 1;
+
+  return (
+    <View style={styles.paginator}>
+      <TouchableOpacity
+        style={[styles.paginatorBtn, isFirst && styles.paginatorBtnDisabled]}
+        onPress={onPrev}
+        disabled={isFirst}
+        activeOpacity={0.7}
+      >
+        <Ionicons name="chevron-back" size={16} color={isFirst ? Colors.textMuted : Colors.text} />
+        <Text style={[styles.paginatorBtnText, isFirst && styles.paginatorTextDisabled]}>Anterior</Text>
+      </TouchableOpacity>
+
+      <Text style={styles.paginatorInfo}>{page + 1} / {totalPages}</Text>
+
+      <TouchableOpacity
+        style={[styles.paginatorBtn, isLast && styles.paginatorBtnDisabled]}
+        onPress={onNext}
+        disabled={isLast}
+        activeOpacity={0.7}
+      >
+        <Text style={[styles.paginatorBtnText, isLast && styles.paginatorTextDisabled]}>Siguiente</Text>
+        <Ionicons name="chevron-forward" size={16} color={isLast ? Colors.textMuted : Colors.text} />
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -297,16 +451,19 @@ function TransactionRow({ transaction: t }: { transaction: Transaction }) {
   );
 }
 
-function CardMovementRow({ movement: m }: { movement: CardMovement }) {
+function CardMovementRow({ movement: m, onPress }: { movement: CardMovement; onPress: () => void }) {
   const isUSD = m.currency === 'USD';
+  const cat = m.category;
+  const iconColor = cat?.color ?? Colors.primary;
+
   return (
-    <View style={styles.txRow}>
-      <View style={[styles.txIcon, { backgroundColor: Colors.primary + '20' }]}>
-        <Ionicons name="card-outline" size={18} color={Colors.primary} />
+    <TouchableOpacity style={styles.txRow} onPress={onPress} activeOpacity={0.7}>
+      <View style={[styles.txIcon, { backgroundColor: iconColor + '20' }]}>
+        <Ionicons name={(cat?.icon ?? 'card-outline') as any} size={18} color={iconColor} />
       </View>
       <View style={styles.txInfo}>
         <Text style={styles.txDescription} numberOfLines={1}>{m.merchant}</Text>
-        <View style={{ flexDirection: 'row', gap: Spacing.sm, alignItems: 'center' }}>
+        <View style={{ flexDirection: 'row', gap: Spacing.sm, alignItems: 'center', marginTop: 2 }}>
           <Text style={styles.txDate}>{formatRelativeDate(m.date)}</Text>
           {m.installment && (
             <View style={styles.installmentBadge}>
@@ -314,11 +471,18 @@ function CardMovementRow({ movement: m }: { movement: CardMovement }) {
             </View>
           )}
         </View>
+        {cat ? (
+          <View style={[styles.catBadge, { backgroundColor: (cat.color ?? Colors.primary) + '20' }]}>
+            <Text style={[styles.catBadgeText, { color: cat.color ?? Colors.primary }]}>{cat.name}</Text>
+          </View>
+        ) : (
+          <Text style={styles.catAssign}>+ Categorizar</Text>
+        )}
       </View>
       <Text style={[styles.txAmount, { color: Colors.expense }]}>
         {isUSD ? `USD ${m.amount.toFixed(2)}` : formatCurrency(m.amount)}
       </Text>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -423,12 +587,12 @@ const styles = StyleSheet.create({
   sectionTitle: { color: Colors.textSecondary, fontSize: FontSize.sm, fontWeight: '600', marginBottom: Spacing.sm, marginTop: Spacing.xs },
 
   // Transaction row
-  txRow:        { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.card, borderRadius: BorderRadius.md, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: Colors.border },
-  txIcon:       { width: 40, height: 40, borderRadius: BorderRadius.md, justifyContent: 'center', alignItems: 'center', marginRight: Spacing.md },
-  txInfo:       { flex: 1 },
+  txRow:        { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: Colors.card, borderRadius: BorderRadius.md, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: Colors.border },
+  txIcon:       { width: 40, height: 40, borderRadius: BorderRadius.md, justifyContent: 'center', alignItems: 'center', marginRight: Spacing.md, flexShrink: 0 },
+  txInfo:       { flex: 1, paddingRight: Spacing.sm },
   txDescription:{ color: Colors.text, fontSize: FontSize.sm, fontWeight: '500' },
   txDate:       { color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 2 },
-  txAmount:     { fontSize: FontSize.sm, fontWeight: '700' },
+  txAmount:     { fontSize: FontSize.sm, fontWeight: '700', paddingTop: 2, flexShrink: 0 },
 
   installmentBadge: { backgroundColor: Colors.primary + '25', borderRadius: BorderRadius.sm, paddingHorizontal: 6, paddingVertical: 2 },
   installmentText:  { color: Colors.primaryLight, fontSize: 10, fontWeight: '600' },
@@ -470,4 +634,30 @@ const styles = StyleSheet.create({
 
   emptyState: { alignItems: 'center', paddingVertical: Spacing.xxl },
   emptyText:  { color: Colors.textMuted, fontSize: FontSize.sm, marginTop: Spacing.md },
+
+  // Paginator
+  paginator:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: Spacing.md, marginTop: Spacing.xs },
+  paginatorBtn:        { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: Spacing.sm, paddingHorizontal: Spacing.md, borderRadius: BorderRadius.md, backgroundColor: Colors.card, borderWidth: 1, borderColor: Colors.border },
+  paginatorBtnDisabled:{ opacity: 0.4 },
+  paginatorBtnText:    { color: Colors.text, fontSize: FontSize.xs, fontWeight: '600' },
+  paginatorTextDisabled:{ color: Colors.textMuted },
+  paginatorInfo:       { color: Colors.textSecondary, fontSize: FontSize.xs, fontWeight: '600' },
+
+  // Category badge on movement row
+  catBadge:     { alignSelf: 'flex-start', borderRadius: BorderRadius.sm, paddingHorizontal: 6, paddingVertical: 2, marginTop: 4 },
+  catBadgeText: { fontSize: 10, fontWeight: '600' },
+  catAssign:    { color: Colors.textMuted, fontSize: 10, marginTop: 4 },
+
+  // Category picker modal
+  modalOverlay:  { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
+  modalSheet:    { backgroundColor: Colors.card, borderTopLeftRadius: BorderRadius.xl, borderTopRightRadius: BorderRadius.xl, padding: Spacing.lg, maxHeight: '70%' },
+  modalHandle:   { width: 40, height: 4, backgroundColor: Colors.border, borderRadius: 2, alignSelf: 'center', marginBottom: Spacing.md },
+  modalTitle:    { color: Colors.text, fontSize: FontSize.md, fontWeight: '700', marginBottom: 2 },
+  modalSubtitle: { color: Colors.textMuted, fontSize: FontSize.xs, marginBottom: Spacing.md },
+  categoryOption:         { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: Colors.border },
+  categoryOptionSelected: { backgroundColor: Colors.primary + '10', borderRadius: BorderRadius.sm },
+  categoryOptionMain:     { flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: Spacing.sm },
+  categoryOptionIcon:     { width: 36, height: 36, borderRadius: BorderRadius.md, justifyContent: 'center', alignItems: 'center', marginRight: Spacing.md },
+  categoryOptionName:     { color: Colors.text, fontSize: FontSize.sm },
+  categoryOptionDelete:   { paddingHorizontal: Spacing.sm, paddingVertical: Spacing.sm },
 });
