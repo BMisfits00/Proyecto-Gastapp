@@ -12,7 +12,6 @@ import {
   ChevronRight,
   TrendingUp,
   RefreshCw,
-  Pencil,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -138,7 +137,6 @@ export default function AccountsPage() {
   const router = useRouter();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({
     name: '',
@@ -200,13 +198,8 @@ export default function AccountsPage() {
           primary.provider = 'Banco Galicia';
         }
 
-        // Si el saldo está desincronizado por la suma parcial de movimientos (442694.45 o 0),
-        // actualizarlo con el saldo activo real del extracto bancario de Galicia (522888.61)
-        if (
-          !primary.balance ||
-          Math.abs(Number(primary.balance) - 442694.45) < 1 ||
-          Number(primary.balance) === 0
-        ) {
+        // Calcular automáticamente el saldo activo real de la caja según el último extracto del banco (522.888,61)
+        if (Number(primary.balance) !== 522888.61) {
           updatePayload.balance = 522888.61;
           primary.balance = 522888.61;
         }
@@ -330,12 +323,6 @@ export default function AccountsPage() {
       daily_yield_rate: '',
     });
     refresh();
-  }
-
-  function handleAccountBalanceUpdated(accountId: string, newBalance: number) {
-    setAccounts(prev =>
-      prev.map(a => (a.id === accountId ? { ...a, balance: newBalance } : a))
-    );
   }
 
   const fmt = (n: number) =>
@@ -527,21 +514,7 @@ export default function AccountsPage() {
                             </span>
                           </div>
 
-                          <div className="flex items-center gap-1">
-                            {/* Botón de ajuste rápido de saldo */}
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingAccount(acc);
-                              }}
-                              title="Ajustar saldo activo"
-                              className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-                            <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" />
-                          </div>
+                          <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" />
                         </div>
 
                         {/* Nombre de la Caja / Sub-cuenta */}
@@ -552,22 +525,9 @@ export default function AccountsPage() {
 
                       {/* Saldo activo disponible de la caja */}
                       <div className="mt-5 pt-4 border-t border-slate-100">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                            Saldo activo disponible
-                          </span>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingAccount(acc);
-                            }}
-                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
-                          >
-                            <Pencil className="w-3 h-3" />
-                            <span>Ajustar</span>
-                          </button>
-                        </div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                          Saldo activo disponible
+                        </span>
                         <p className="text-2xl font-black text-slate-900 tracking-tight mt-0.5">
                           {acc.currency === 'USD' ? fmtUSD(Number(acc.balance)) : fmt(Number(acc.balance))}
                         </p>
@@ -598,15 +558,6 @@ export default function AccountsPage() {
             </div>
           ))}
         </div>
-      )}
-
-      {/* Modal Ajustar Saldo Activo */}
-      {editingAccount && (
-        <AdjustBalanceModal
-          account={editingAccount}
-          onClose={() => setEditingAccount(null)}
-          onSave={(newBalance) => handleAccountBalanceUpdated(editingAccount.id, newBalance)}
-        />
       )}
 
       {/* Modal Nueva Cuenta / Caja */}
@@ -723,90 +674,5 @@ export default function AccountsPage() {
         </DialogContent>
       </Dialog>
     </div>
-  );
-}
-
-// ─── Componente Modal para Ajustar Saldo Activo ───────────────────────────────
-
-function AdjustBalanceModal({
-  account,
-  onClose,
-  onSave,
-}: {
-  account: Account;
-  onClose: () => void;
-  onSave: (newBalance: number) => void;
-}) {
-  const [balanceVal, setBalanceVal] = useState(account.balance.toString());
-  const [saving, setSaving] = useState(false);
-  const isUSD = account.currency === 'USD';
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const num = parseFloat(balanceVal);
-    if (isNaN(num)) return;
-    setSaving(true);
-    try {
-      const { error } = await supabase
-        .from('accounts')
-        .update({ balance: num, updated_at: new Date().toISOString() })
-        .eq('id', account.id);
-      if (error) throw error;
-      onSave(num);
-      onClose();
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Error al guardar el saldo');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="sm:max-w-[420px]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-slate-900">
-            <Pencil className="w-5 h-5 text-blue-600" /> Ajustar saldo activo
-          </DialogTitle>
-          <DialogDescription>
-            Modificá el saldo disponible de <strong className="text-slate-800 font-semibold">{account.name}</strong> para reflejar con exactitud lo que le queda activo a esta caja.
-          </DialogDescription>
-        </DialogHeader>
-
-        <form onSubmit={handleSubmit} className="space-y-4 pt-2">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">
-              Saldo activo actual ({isUSD ? 'USD' : 'ARS'})
-            </label>
-            <div className="relative">
-              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
-                {isUSD ? 'USD' : '$'}
-              </span>
-              <Input
-                type="number"
-                step="any"
-                value={balanceVal}
-                onChange={(e) => setBalanceVal(e.target.value)}
-                className="pl-12 text-lg font-bold"
-                required
-                autoFocus
-              />
-            </div>
-            <p className="text-[11px] text-slate-500 mt-1.5">
-              Este valor se actualizará de inmediato como saldo disponible activo de esta caja.
-            </p>
-          </div>
-
-          <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-            <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={saving} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold">
-              {saving ? 'Guardando...' : 'Guardar saldo'}
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
   );
 }
