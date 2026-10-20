@@ -19,3 +19,4 @@ yarn-error.*
 scripts/galicia/credentials.json
 scripts/galicia/output-*.json
 scripts/galicia/debug/
+scripts/galicia/cron.log

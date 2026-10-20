@@ -700,8 +700,8 @@ export default function AccountDetailPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header en una sola fila con Último scrapeo y Sincronizar Galicia a la derecha */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-100">
+      {/* Header con Saldo a la izquierda y Último scrapeo arriba a la derecha */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <button type="button" aria-label="Volver" onClick={() => router.back()}
             className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-800 transition-colors shadow-xs">
@@ -716,18 +716,15 @@ export default function AccountDetailPage() {
           </div>
         </div>
 
-        {/* Lado derecho: Último scrapeo en texto verde clarito + Botón general de Sincronizar Galicia */}
-        <div className="flex flex-wrap items-center gap-4 sm:justify-end">
-          {lastScrapedTime && (
-            <p className="text-xs text-emerald-600 font-medium flex items-center gap-1.5 whitespace-nowrap">
+        {/* Lado derecho (arriba del botón de sincronizar): Último scrapeo en verde clarito */}
+        {lastScrapedTime && (
+          <div className="sm:text-right">
+            <p className="text-xs text-emerald-600 font-medium flex items-center sm:justify-end gap-1.5 whitespace-nowrap">
               <RefreshCw size={12} className="text-emerald-500 shrink-0" />
               <span>Último scrapeo: <strong className="text-emerald-700 font-semibold">{fmtDateTime(lastScrapedTime)}</strong></span>
             </p>
-          )}
-          {isGalicia && (
-            <SyncButton state={syncState} onClick={handleSync} />
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {syncMsg && (
@@ -739,23 +736,31 @@ export default function AccountDetailPage() {
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="flex gap-2 border-b border-slate-200 pb-0">
-        {TABS.map(t => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => setTab(t.key)}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition-colors -mb-px ${
-              tab === t.key
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <span>{t.icon}</span>
-            {t.label}
-          </button>
-        ))}
+      {/* Fila de Tabs con el botón Sincronizar Galicia alineado a la derecha */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-0 gap-3">
+        <div className="flex gap-2 overflow-x-auto">
+          {TABS.map(t => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(t.key)}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition-colors -mb-px whitespace-nowrap ${
+                tab === t.key
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <span>{t.icon}</span>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {isGalicia && (
+          <div className="pb-2 sm:pb-1 pr-1">
+            <SyncButton state={syncState} onClick={handleSync} />
+          </div>
+        )}
       </div>
 
       {/* Contenido */}
@@ -947,18 +952,28 @@ function CardTab({ card, movements, accountId }: { card: CreditCard | null; move
   const pagedMvs   = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   return (
-    <div className="space-y-6">
-      {/* Resumen tarjeta */}
+    <div className="space-y-4">
+      {/* Filtros en la parte superior idéntico a Ingresos y Gastos */}
+      {movements.length > 0 && (
+        <FilterBar>
+          <YearMonthFilter
+            items={movements}
+            year={year}
+            month={month}
+            onYearChange={v => { setYear(v); setPage(0); }}
+            onMonthChange={v => { setMonth(v); setPage(0); }}
+          />
+          <DateRangePicker value={range} onChange={v => { setRange(v); setPage(0); }} />
+          <CategoryDropdown categories={allCats} selected={catFilter} onSelect={v => { setCatFilter(v); setPage(0); }} />
+        </FilterBar>
+      )}
+
+      {/* Resumen tarjeta sin el icono desunido */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6">
-        <div className="flex items-start justify-between mb-6">
-          <div>
-            <p className="text-slate-900 font-bold text-lg">{card.brand} {card.product}</p>
-            <p className="text-slate-500 text-sm mt-0.5 font-medium">•••• {card.last_digits}</p>
-            {card.holder && <p className="text-slate-400 text-xs mt-1">{card.holder}</p>}
-          </div>
-          <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-100">
-            <CreditCardIcon size={24} />
-          </div>
+        <div className="mb-5">
+          <p className="text-slate-900 font-bold text-lg">{card.brand} {card.product}</p>
+          <p className="text-slate-500 text-sm mt-0.5 font-medium">•••• {card.last_digits}</p>
+          {card.holder && <p className="text-slate-400 text-xs mt-1">{card.holder}</p>}
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -984,21 +999,6 @@ function CardTab({ card, movements, accountId }: { card: CreditCard | null; move
           )}
         </div>
       </div>
-
-      {/* Filtros */}
-      {movements.length > 0 && (
-        <FilterBar>
-          <YearMonthFilter
-            items={movements}
-            year={year}
-            month={month}
-            onYearChange={v => { setYear(v); setPage(0); }}
-            onMonthChange={v => { setMonth(v); setPage(0); }}
-          />
-          <DateRangePicker value={range} onChange={v => { setRange(v); setPage(0); }} />
-          <CategoryDropdown categories={allCats} selected={catFilter} onSelect={v => { setCatFilter(v); setPage(0); }} />
-        </FilterBar>
-      )}
 
       {/* Totales del período filtrado */}
       <div className="grid grid-cols-2 gap-4">
