@@ -117,7 +117,7 @@ export default function AccountsPage() {
     const d = new Date(iso);
     const dateStr = d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
     const timeStr = d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
-    return `${dateStr} ${timeStr} hs`;
+    return `${dateStr} ${timeStr}`;
   };
 
   const totalBalance = accounts.reduce((s, a) => s + Number(a.balance), 0);

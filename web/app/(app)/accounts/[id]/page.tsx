@@ -35,7 +35,7 @@ const fmtDateTime = (d: string) => {
   const date = new Date(d);
   const dateStr = date.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const timeStr = date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
-  return `${dateStr} ${timeStr} hs`;
+  return `${dateStr} ${timeStr}`;
 };
 
 const toIso = (d: Date) => d.toISOString().split('T')[0];
@@ -699,7 +699,7 @@ export default function AccountDetailPage() {
   const lastScrapedTime = account.last_scraped_at || card?.synced_at;
 
   return (
-    <div className="space-y-6">
+    <div className="p-8 space-y-6 max-w-7xl mx-auto">
       {/* Header con Saldo a la izquierda y Último scrapeo arriba a la derecha */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
@@ -716,9 +716,9 @@ export default function AccountDetailPage() {
           </div>
         </div>
 
-        {/* Lado derecho (arriba del botón de sincronizar): Último scrapeo en verde clarito */}
+        {/* Lado derecho (arriba del botón de sincronizar): Último scrapeo en verde clarito con margen interior */}
         {lastScrapedTime && (
-          <div className="sm:text-right">
+          <div className="sm:text-right pr-4 sm:pr-10">
             <p className="text-xs text-emerald-600 font-medium flex items-center sm:justify-end gap-1.5 whitespace-nowrap">
               <RefreshCw size={12} className="text-emerald-500 shrink-0" />
               <span>Último scrapeo: <strong className="text-emerald-700 font-semibold">{fmtDateTime(lastScrapedTime)}</strong></span>
@@ -736,7 +736,7 @@ export default function AccountDetailPage() {
         </div>
       )}
 
-      {/* Fila de Tabs con el botón Sincronizar Galicia y el icono de la tarjeta */}
+      {/* Fila de Tabs con el botón Sincronizar Galicia y el icono de la tarjeta con margen interior */}
       <div className="flex items-center justify-between border-b border-slate-200 pb-0 gap-3">
         <div className="flex gap-1 sm:gap-2">
           {TABS.map(t => (
@@ -757,7 +757,7 @@ export default function AccountDetailPage() {
         </div>
 
         {isGalicia && (
-          <div className="flex items-center gap-2 pb-1 pr-1 shrink-0">
+          <div className="flex items-center gap-2 pb-1 pr-4 sm:pr-10 shrink-0">
             <SyncButton state={syncState} onClick={handleSync} />
             <div className="p-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200/80 shadow-xs" title="Tarjeta de Crédito Galicia">
               <CreditCardIcon size={15} />
