@@ -64,16 +64,14 @@ function applyYearMonth<T extends { date: string }>(items: T[], year: string, mo
 }
 
 function uniqueYears(items: { date: string }[]) {
-  return [...new Set(items.map(t => new Date(t.date + 'T00:00:00').getFullYear()))].sort((a, b) => b - a);
+  const currentYear = new Date().getFullYear();
+  const txYears = items
+    .map(t => new Date(t.date + 'T00:00:00').getFullYear())
+    .filter(y => !isNaN(y));
+  return [...new Set([currentYear, ...txYears])].sort((a, b) => b - a);
 }
 
-function uniqueMonths(items: { date: string }[], year: string) {
-  return [...new Set(
-    items
-      .filter(t => !year || new Date(t.date + 'T00:00:00').getFullYear().toString() === year)
-      .map(t => new Date(t.date + 'T00:00:00').getMonth() + 1),
-  )].sort((a, b) => a - b);
-}
+const ALL_MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
 type CalView = 'days' | 'months' | 'years';
 
@@ -365,8 +363,7 @@ function YearMonthFilter({
   onYearChange: (y: string) => void;
   onMonthChange: (m: string) => void;
 }) {
-  const years  = uniqueYears(items);
-  const months = uniqueMonths(items, year);
+  const years = uniqueYears(items);
   if (years.length === 0) return null;
 
   const selectCls = 'bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 font-medium focus:outline-none focus:border-blue-600 shadow-xs';
@@ -390,7 +387,11 @@ function YearMonthFilter({
         className={selectCls}
       >
         <option value="">Mes</option>
-        {months.map(m => <option key={m} value={m}>{MONTHS_SHORT[m - 1]}</option>)}
+        {ALL_MONTHS.map(m => (
+          <option key={m} value={String(m)}>
+            {MONTHS_SHORT[m - 1]}
+          </option>
+        ))}
       </select>
     </>
   );
