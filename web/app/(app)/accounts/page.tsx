@@ -190,9 +190,9 @@ export default function AccountsPage() {
                     </div>
                   )}
                   {getSyncTime(acc) && (
-                    <div className="flex items-center gap-1.5 text-slate-500 text-xs mt-2 font-medium bg-slate-50 border border-slate-200/60 px-2.5 py-1 rounded-md w-fit">
-                      <RefreshCw className="w-3 h-3 text-blue-600 shrink-0" />
-                      <span>Último scrapeo: <strong className="text-slate-800 font-semibold">{fmtDateTime(getSyncTime(acc)!)}</strong></span>
+                    <div className="flex items-center gap-1.5 text-emerald-600 text-xs mt-2 font-medium">
+                      <RefreshCw className="w-3 h-3 text-emerald-500 shrink-0" />
+                      <span>Último scrapeo: <strong className="text-emerald-700 font-semibold">{fmtDateTime(getSyncTime(acc)!)}</strong></span>
                     </div>
                   )}
                 </div>

@@ -618,6 +618,28 @@ export default function AccountDetailPage() {
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [tab, setTab]                 = useState<Tab>('income');
   const [loading, setLoading]         = useState(true);
+  const [syncState, setSyncState]     = useState<SyncState>('idle');
+  const [syncMsg, setSyncMsg]         = useState('');
+
+  async function handleSync() {
+    setSyncState('loading');
+    setSyncMsg('');
+    try {
+      const res = await fetch('/api/scrape/galicia', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Error desconocido');
+      setSyncState('success');
+      setSyncMsg(`Tarjeta ····${data.cardLastDigits} · ${data.movementsCount} movimientos sincronizados`);
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (err: unknown) {
+      setSyncState('error');
+      setSyncMsg(err instanceof Error ? err.message : 'Error al sincronizar');
+    }
+  }
 
   useEffect(() => {
     async function load() {
@@ -670,30 +692,52 @@ export default function AccountDetailPage() {
     );
   }
 
+  const isGalicia =
+    account.provider?.toLowerCase().includes('galicia') ||
+    account.name.toLowerCase().includes('galicia');
+
+  const lastScrapedTime = account.last_scraped_at || card?.synced_at;
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-4">
-        <button type="button" aria-label="Volver" onClick={() => router.back()}
-          className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-800 transition-colors shadow-xs">
-          <ArrowLeft size={18} />
-        </button>
-        <div>
-          <div className="flex items-center gap-3">
+      {/* Header en una sola fila con Último scrapeo y Sincronizar Galicia a la derecha */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-100">
+        <div className="flex items-center gap-4">
+          <button type="button" aria-label="Volver" onClick={() => router.back()}
+            className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-800 transition-colors shadow-xs">
+            <ArrowLeft size={18} />
+          </button>
+          <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">{account.name}</h1>
-            {(account.last_scraped_at || card?.synced_at) && (
-              <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                <RefreshCw size={11} className="shrink-0" />
-                Último scrapeo: {fmtDateTime(account.last_scraped_at || card?.synced_at!)}
-              </span>
-            )}
+            <p className="text-slate-500 text-sm mt-0.5">
+              {account.provider && `${account.provider} · `}
+              Saldo disponible: <span className="text-slate-900 font-bold">{fmt(Number(account.balance))}</span>
+            </p>
           </div>
-          <p className="text-slate-500 text-sm mt-0.5">
-            {account.provider && `${account.provider} · `}
-            Saldo disponible: <span className="text-slate-900 font-bold">{fmt(Number(account.balance))}</span>
-          </p>
+        </div>
+
+        {/* Lado derecho: Último scrapeo en texto verde clarito + Botón general de Sincronizar Galicia */}
+        <div className="flex flex-wrap items-center gap-4 sm:justify-end">
+          {lastScrapedTime && (
+            <p className="text-xs text-emerald-600 font-medium flex items-center gap-1.5 whitespace-nowrap">
+              <RefreshCw size={12} className="text-emerald-500 shrink-0" />
+              <span>Último scrapeo: <strong className="text-emerald-700 font-semibold">{fmtDateTime(lastScrapedTime)}</strong></span>
+            </p>
+          )}
+          {isGalicia && (
+            <SyncButton state={syncState} onClick={handleSync} />
+          )}
         </div>
       </div>
+
+      {syncMsg && (
+        <div className={`flex items-center gap-2 text-sm px-4 py-2.5 rounded-xl font-medium ${
+          syncState === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
+        }`}>
+          {syncState === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+          {syncMsg}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-2 border-b border-slate-200 pb-0">
@@ -846,8 +890,6 @@ function CardTab({ card, movements, accountId }: { card: CreditCard | null; move
   const [year, setYear]             = useState('');
   const [month, setMonth]           = useState('');
   const [catFilter, setCatFilter]   = useState('');
-  const [syncState, setSyncState]   = useState<SyncState>('idle');
-  const [syncMsg, setSyncMsg]       = useState('');
   const [allCats, setAllCats]       = useState<CategoryOption[]>([]);
   const [catOverrides, setCatOverrides] = useState<Record<string, CategoryOption | null>>({});
   const [showCreate, setShowCreate] = useState(false);
@@ -885,37 +927,12 @@ function CardTab({ card, movements, accountId }: { card: CreditCard | null; move
     return null;
   }
 
-  async function handleSync() {
-    setSyncState('loading');
-    setSyncMsg('');
-    try {
-      const res  = await fetch('/api/scrape/galicia', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ account_id: accountId }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Error desconocido');
-      setSyncState('success');
-      setSyncMsg(`Tarjeta ····${data.cardLastDigits} · ${data.movementsCount} movimientos sincronizados`);
-      setTimeout(() => window.location.reload(), 1500);
-    } catch (err: unknown) {
-      setSyncState('error');
-      setSyncMsg(err instanceof Error ? err.message : 'Error al sincronizar');
-    }
-  }
-
   if (!card) {
     return (
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-16 text-center space-y-4">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-16 text-center space-y-3">
         <CreditCardIcon size={44} className="text-slate-300 mx-auto" />
-        <p className="text-slate-500 font-medium">No hay tarjeta de crédito asociada a esta cuenta</p>
-        {syncMsg && (
-          <p className={`text-sm font-semibold ${syncState === 'error' ? 'text-rose-600' : 'text-emerald-600'}`}>{syncMsg}</p>
-        )}
-        <div className="flex justify-center">
-          <SyncButton state={syncState} onClick={handleSync} />
-        </div>
+        <p className="text-slate-600 font-medium">No hay tarjeta de crédito asociada a esta cuenta</p>
+        <p className="text-slate-400 text-xs">Podés sincronizar los consumos utilizando el botón "Sincronizar Galicia" en la barra superior.</p>
       </div>
     );
   }
@@ -938,29 +955,11 @@ function CardTab({ card, movements, accountId }: { card: CreditCard | null; move
             <p className="text-slate-900 font-bold text-lg">{card.brand} {card.product}</p>
             <p className="text-slate-500 text-sm mt-0.5 font-medium">•••• {card.last_digits}</p>
             {card.holder && <p className="text-slate-400 text-xs mt-1">{card.holder}</p>}
-            {card.synced_at && (
-              <p className="text-slate-500 text-xs mt-1.5 flex items-center gap-1 font-medium">
-                <RefreshCw size={11} className="text-blue-600" />
-                <span>Último scrapeo: <strong className="text-slate-700 font-semibold">{fmtDateTime(card.synced_at)}</strong></span>
-              </p>
-            )}
           </div>
-          <div className="flex items-center gap-3">
-            <SyncButton state={syncState} onClick={handleSync} />
-            <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-100">
-              <CreditCardIcon size={24} />
-            </div>
+          <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-100">
+            <CreditCardIcon size={24} />
           </div>
         </div>
-
-        {syncMsg && (
-          <div className={`flex items-center gap-2 text-sm px-4 py-2.5 rounded-xl mb-4 font-medium ${
-            syncState === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
-          }`}>
-            {syncState === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
-            {syncMsg}
-          </div>
-        )}
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           {[
