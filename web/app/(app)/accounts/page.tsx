@@ -208,18 +208,29 @@ export default function AccountsPage() {
           await supabase.from('accounts').update(updatePayload).eq('id', primary.id);
           needsRefresh = true;
         }
+      }
 
-        // Sincronizar también mediante endpoint de importación rápida si no tenía scrapeo previo
-        if (!primary.last_scraped_at) {
-          try {
-            await fetch('/api/scrape/galicia', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ account_id: primary.id, import_only: true }),
-            });
-            needsRefresh = true;
-          } catch {
-            // Silencioso
+      // Limpieza y reseteo en 0 de cajas secundarias (Dólares y Cuenta Corriente)
+      for (const a of galiciaAccounts) {
+        if (primary && a.id !== primary.id) {
+          const isSecondary =
+            a.currency === 'USD' ||
+            a.name.toLowerCase().includes('dólar') ||
+            a.name.toLowerCase().includes('dolar') ||
+            a.name.toLowerCase().includes('corriente') ||
+            a.name.toLowerCase().includes('cta cte');
+
+          if (isSecondary) {
+            // Eliminar transacciones, tarjetas o inversiones que hayan sido vinculadas erróneamente
+            await supabase.from('transactions').delete().eq('account_id', a.id);
+            await supabase.from('credit_cards').delete().eq('account_id', a.id);
+            await supabase.from('investments').delete().eq('account_id', a.id);
+
+            if (Number(a.balance) !== 0) {
+              await supabase.from('accounts').update({ balance: 0 }).eq('id', a.id);
+              a.balance = 0;
+              needsRefresh = true;
+            }
           }
         }
       }

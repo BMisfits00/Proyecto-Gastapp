@@ -772,25 +772,66 @@ export default function AccountDetailPage() {
         supabase.from('investments').select('*').eq('account_id', id).order('started_at', { ascending: false }),
       ]);
 
-      if (
+      const isPrimary =
         acc &&
-        (acc.provider?.toLowerCase().includes('galicia') || acc.name.toLowerCase().includes('galicia')) &&
-        acc.currency === 'ARS' &&
-        Number(acc.balance) !== 522888.61
-      ) {
-        await supabase.from('accounts').update({ balance: 522888.61 }).eq('id', acc.id);
-        acc.balance = 522888.61;
+        (acc.currency === 'ARS' || !acc.currency) &&
+        !acc.name.toLowerCase().includes('corriente') &&
+        !acc.name.toLowerCase().includes('cta cte') &&
+        !acc.name.toLowerCase().includes('dólar') &&
+        !acc.name.toLowerCase().includes('dolar');
+
+      let currentIncome = txIncome || [];
+      let currentExpenses = txExpense || [];
+      let currentCard = cc;
+      let currentInvs = invs || [];
+
+      if (isPrimary) {
+        if (
+          (acc.provider?.toLowerCase().includes('galicia') || acc.name.toLowerCase().includes('galicia')) &&
+          Number(acc.balance) !== 522888.61
+        ) {
+          await supabase.from('accounts').update({ balance: 522888.61 }).eq('id', acc.id);
+          acc.balance = 522888.61;
+        }
+      } else {
+        // Cuentas secundarias (Caja de Ahorro en Dólares, Cuenta Corriente en Pesos)
+        const isGaliciaAcc = acc?.provider?.toLowerCase().includes('galicia') || acc?.name.toLowerCase().includes('galicia');
+        if (isGaliciaAcc) {
+          // Desvincular tarjetas e inversiones erróneas
+          if (cc) {
+            await supabase.from('credit_cards').delete().eq('account_id', acc.id);
+            currentCard = null;
+          }
+          if (invs && invs.length > 0) {
+            await supabase.from('investments').delete().eq('account_id', acc.id);
+            currentInvs = [];
+          }
+          // Si es cuenta en USD o si tenía el saldo de pesos copiado erróneamente, limpiar transacciones y saldo a 0
+          if (acc.currency === 'USD' || Number(acc.balance) === 522888.61) {
+            await supabase.from('transactions').delete().eq('account_id', acc.id);
+            if (Number(acc.balance) !== 0) {
+              await supabase.from('accounts').update({ balance: 0 }).eq('id', acc.id);
+              acc.balance = 0;
+            }
+            currentIncome = [];
+            currentExpenses = [];
+          }
+        }
+        currentCard = null;
+        currentInvs = [];
       }
 
       setAccount(acc);
-      setIncome(txIncome || []);
-      setExpenses(txExpense || []);
-      setCard(cc);
-      setInvestments(invs || []);
+      setIncome(currentIncome);
+      setExpenses(currentExpenses);
+      setCard(currentCard);
+      setInvestments(currentInvs);
 
-      if (cc) {
-        const { data: mvs } = await supabase.from('card_movements').select('*, category:categories(id,name,color)').eq('card_id', cc.id).order('date', { ascending: false });
+      if (currentCard) {
+        const { data: mvs } = await supabase.from('card_movements').select('*, category:categories(id,name,color)').eq('card_id', currentCard.id).order('date', { ascending: false });
         setCardMvs(mvs || []);
+      } else {
+        setCardMvs([]);
       }
 
       setLoading(false);
@@ -817,6 +858,17 @@ export default function AccountDetailPage() {
   const isGalicia =
     account.provider?.toLowerCase().includes('galicia') ||
     account.name.toLowerCase().includes('galicia');
+
+  const isPrimary =
+    (account.currency === 'ARS' || !account.currency) &&
+    !account.name.toLowerCase().includes('corriente') &&
+    !account.name.toLowerCase().includes('cta cte') &&
+    !account.name.toLowerCase().includes('dólar') &&
+    !account.name.toLowerCase().includes('dolar');
+
+  const visibleTabs = isPrimary
+    ? TABS
+    : TABS.filter(t => t.key === 'balance' || t.key === 'income' || t.key === 'expense');
 
   const lastScrapedTime = account.last_scraped_at || card?.synced_at;
 
@@ -871,7 +923,7 @@ export default function AccountDetailPage() {
       {/* Fila de Tabs con botones de acción con margen interior */}
       <div className="flex items-center justify-between border-b border-slate-200 pb-0 gap-3">
         <div className="flex gap-1 sm:gap-2">
-          {TABS.map(t => (
+          {visibleTabs.map(t => (
             <button
               key={t.key}
               type="button"
@@ -900,7 +952,7 @@ export default function AccountDetailPage() {
             <span>{autoCatLoading ? 'Categorizando…' : 'Auto-categorizar'}</span>
           </button>
 
-          {isGalicia && (
+          {isGalicia && isPrimary && (
             <>
               <SyncButton state={syncState} onClick={handleSync} />
               <div className="p-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200/80 shadow-xs" title="Tarjeta de Crédito Galicia">
@@ -912,13 +964,15 @@ export default function AccountDetailPage() {
       </div>
 
       {/* Contenido */}
-      {tab === 'balance'     && (
+      {(tab === 'balance' || (!isPrimary && (tab === 'card' || tab === 'investments'))) && (
         <BalanceTab
           income={income}
           expenses={expenses}
-          card={card}
-          cardMvs={cardMvs}
-          investments={investments}
+          card={isPrimary ? card : null}
+          cardMvs={isPrimary ? cardMvs : []}
+          investments={isPrimary ? investments : []}
+          currency={account.currency || 'ARS'}
+          isPrimary={isPrimary}
           year={filterYear}
           month={filterMonth}
           range={filterRange}
@@ -933,6 +987,7 @@ export default function AccountDetailPage() {
         <IncomeTab
           transactions={income}
           accountName={account.name}
+          currency={account.currency || 'ARS'}
           year={filterYear}
           month={filterMonth}
           range={filterRange}
@@ -959,6 +1014,7 @@ export default function AccountDetailPage() {
         <ExpenseTab
           transactions={expenses}
           accountName={account.name}
+          currency={account.currency || 'ARS'}
           year={filterYear}
           month={filterMonth}
           range={filterRange}
@@ -981,7 +1037,7 @@ export default function AccountDetailPage() {
           }}
         />
       )}
-      {tab === 'card'        && (
+      {isPrimary && tab === 'card'        && (
         <CardTab
           card={card}
           movements={cardMvs}
@@ -1008,7 +1064,7 @@ export default function AccountDetailPage() {
           }}
         />
       )}
-      {tab === 'investments' && <InvestmentsTab investments={investments} />}
+      {isPrimary && tab === 'investments' && <InvestmentsTab investments={investments} />}
     </div>
   );
 }
@@ -1021,6 +1077,8 @@ function BalanceTab({
   card,
   cardMvs,
   investments,
+  currency = 'ARS',
+  isPrimary = true,
   year,
   month,
   range,
@@ -1035,6 +1093,8 @@ function BalanceTab({
   card: CreditCard | null;
   cardMvs: CardMovement[];
   investments: Investment[];
+  currency?: string;
+  isPrimary?: boolean;
   year: string;
   month: string;
   range: DateRange;
@@ -1044,6 +1104,7 @@ function BalanceTab({
   search: string;
   onSearchChange: (s: string) => void;
 }) {
+  const formatMoney = (n: number) => currency === 'USD' ? fmtUSD(n) : fmt(n);
   const allTx = [...income, ...expenses];
   const afterYM_income  = applyYearMonth(income, year, month);
   const filteredIncome  = applyRangeFilter(afterYM_income, range);
@@ -1119,7 +1180,7 @@ function BalanceTab({
       </FilterBar>
 
       {/* Tarjetas métricas comparativas de cabecera */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${isPrimary ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4`}>
         {/* Ingresos */}
         <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
           <div className="flex items-center justify-between">
@@ -1128,7 +1189,7 @@ function BalanceTab({
               <TrendingUp size={18} />
             </div>
           </div>
-          <p className="text-2xl font-bold text-emerald-600 mt-2">{fmt(totalIncome)}</p>
+          <p className="text-2xl font-bold text-emerald-600 mt-2">{formatMoney(totalIncome)}</p>
           <p className="text-xs text-slate-400 mt-1 font-medium">{filteredIncome.length} acreditaciones</p>
         </div>
 
@@ -1140,7 +1201,7 @@ function BalanceTab({
               <TrendingDown size={18} />
             </div>
           </div>
-          <p className="text-2xl font-bold text-rose-600 mt-2">{fmt(totalExpense)}</p>
+          <p className="text-2xl font-bold text-rose-600 mt-2">{formatMoney(totalExpense)}</p>
           <p className="text-xs text-slate-400 mt-1 font-medium">{filteredExpense.length} débitos</p>
         </div>
 
@@ -1153,7 +1214,7 @@ function BalanceTab({
             </div>
           </div>
           <p className={`text-2xl font-bold mt-2 ${netFlow >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-            {netFlow >= 0 ? '+' : ''}{fmt(netFlow)}
+            {netFlow >= 0 ? '+' : ''}{formatMoney(netFlow)}
           </p>
           <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded-md mt-1 ${
             netFlow >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
@@ -1162,35 +1223,37 @@ function BalanceTab({
           </span>
         </div>
 
-        {/* Productos vinculados (Tarjeta / Inversiones) */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Productos Vinculados</span>
-            <div className="p-2 rounded-lg bg-blue-50 text-blue-700">
-              <CreditCardIcon size={18} />
+        {/* Productos vinculados (Tarjeta / Inversiones) - Solo para cuenta principal */}
+        {isPrimary && (
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Productos Vinculados</span>
+              <div className="p-2 rounded-lg bg-blue-50 text-blue-700">
+                <CreditCardIcon size={18} />
+              </div>
             </div>
+            {card ? (
+              <div className="mt-2">
+                <p className="text-sm font-bold text-slate-900">Tarjeta {card.brand || 'Crédito'}</p>
+                <p className="text-xs text-slate-500 font-medium">Consumo ARS: <strong className="text-slate-800">{fmt(cardTotalARS || Number(card.consumption_ars))}</strong></p>
+                {cardTotalUSD > 0 && (
+                  <p className="text-xs text-slate-500 font-medium">Consumo USD: <strong className="text-slate-800">{fmtUSD(cardTotalUSD)}</strong></p>
+                )}
+              </div>
+            ) : totalCapital > 0 ? (
+              <div className="mt-2">
+                <p className="text-sm font-bold text-slate-900">Inversiones activas</p>
+                <p className="text-xs text-emerald-600 font-semibold">{fmt(totalCapital)} colocados</p>
+                {totalGain > 0 && <p className="text-[11px] text-emerald-600">+{fmt(totalGain)} rendimiento</p>}
+              </div>
+            ) : (
+              <div className="mt-2">
+                <p className="text-sm font-semibold text-slate-700">Sin tarjeta asociada</p>
+                <p className="text-xs text-slate-400">Podés sincronizarla en la solapa Tarjeta</p>
+              </div>
+            )}
           </div>
-          {card ? (
-            <div className="mt-2">
-              <p className="text-sm font-bold text-slate-900">Tarjeta {card.brand || 'Crédito'}</p>
-              <p className="text-xs text-slate-500 font-medium">Consumo ARS: <strong className="text-slate-800">{fmt(cardTotalARS || Number(card.consumption_ars))}</strong></p>
-              {cardTotalUSD > 0 && (
-                <p className="text-xs text-slate-500 font-medium">Consumo USD: <strong className="text-slate-800">{fmtUSD(cardTotalUSD)}</strong></p>
-              )}
-            </div>
-          ) : totalCapital > 0 ? (
-            <div className="mt-2">
-              <p className="text-sm font-bold text-slate-900">Inversiones activas</p>
-              <p className="text-xs text-emerald-600 font-semibold">{fmt(totalCapital)} colocados</p>
-              {totalGain > 0 && <p className="text-[11px] text-emerald-600">+{fmt(totalGain)} rendimiento</p>}
-            </div>
-          ) : (
-            <div className="mt-2">
-              <p className="text-sm font-semibold text-slate-700">Sin tarjeta asociada</p>
-              <p className="text-xs text-slate-400">Podés sincronizarla en la solapa Tarjeta</p>
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
       {/* Gráfico Comparativo: Ingresos vs Gastos */}
@@ -1306,6 +1369,7 @@ function BalanceTab({
 function IncomeTab({
   transactions,
   accountName,
+  currency = 'ARS',
   year,
   month,
   range,
@@ -1318,6 +1382,7 @@ function IncomeTab({
 }: {
   transactions: Transaction[];
   accountName?: string;
+  currency?: string;
   year: string;
   month: string;
   range: DateRange;
@@ -1385,11 +1450,12 @@ function IncomeTab({
         <CategoryDropdown categories={filterCats} selected={catFilter} onSelect={setCatFilter} />
         <SearchInput value={search} onChange={onSearchChange} placeholder="Buscar en ingresos…" />
       </FilterBar>
-      <SummaryCard amount={total} label="Total Ingresos Acreditados" color="text-emerald-600" bg="bg-emerald-50" icon={<TrendingUp size={22} />} />
+      <SummaryCard amount={total} label="Total Ingresos Acreditados" color="text-emerald-600" bg="bg-emerald-50" icon={<TrendingUp size={22} />} currency={currency} />
       {byCategory.length > 0 && (
         <CategoryBreakdown
           items={byCategory}
           total={total}
+          currency={currency}
           title="Distribución de Ingresos"
           subtitle="Gráfico circular de ingresos según el período seleccionado"
         />
@@ -1412,6 +1478,7 @@ function IncomeTab({
 function ExpenseTab({
   transactions,
   accountName,
+  currency = 'ARS',
   year,
   month,
   range,
@@ -1424,6 +1491,7 @@ function ExpenseTab({
 }: {
   transactions: Transaction[];
   accountName?: string;
+  currency?: string;
   year: string;
   month: string;
   range: DateRange;
@@ -1491,11 +1559,12 @@ function ExpenseTab({
         <CategoryDropdown categories={filterCats} selected={catFilter} onSelect={setCatFilter} />
         <SearchInput value={search} onChange={onSearchChange} placeholder="Buscar en gastos…" />
       </FilterBar>
-      <SummaryCard amount={total} label="Total Gastos Debitado" color="text-rose-600" bg="bg-rose-50" icon={<TrendingDown size={22} />} />
+      <SummaryCard amount={total} label="Total Gastos Debitado" color="text-rose-600" bg="bg-rose-50" icon={<TrendingDown size={22} />} currency={currency} />
       {byCategory.length > 0 && (
         <CategoryBreakdown
           items={byCategory}
           total={total}
+          currency={currency}
           title="Distribución de Gastos"
           subtitle="Gráfico circular de gastos según el período seleccionado"
         />
@@ -1909,15 +1978,15 @@ function SearchInput({
   );
 }
 
-function SummaryCard({ amount, label, color, bg, icon }: {
-  amount: number; label: string; color: string; bg: string; icon: React.ReactNode;
+function SummaryCard({ amount, label, color, bg, icon, currency = 'ARS' }: {
+  amount: number; label: string; color: string; bg: string; icon: React.ReactNode; currency?: string;
 }) {
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 flex items-center gap-5">
       <div className={`${bg} ${color} p-3.5 rounded-xl border border-slate-100`}>{icon}</div>
       <div>
         <p className="text-slate-500 text-xs font-semibold uppercase tracking-wide">{label}</p>
-        <p className={`text-2xl font-bold mt-1 ${color}`}>{fmt(amount)}</p>
+        <p className={`text-2xl font-bold mt-1 ${color}`}>{currency === 'USD' ? fmtUSD(amount) : fmt(amount)}</p>
       </div>
     </div>
   );
@@ -1951,15 +2020,18 @@ function groupByCategory(transactions: Transaction[]) {
 function CategoryBreakdown({
   items,
   total,
+  currency = 'ARS',
   title = 'Distribución por Rubro',
   subtitle = 'Visualización de gastos según el período seleccionado',
 }: {
   items: { name: string; color: string; total: number }[];
   total: number;
+  currency?: string;
   title?: string;
   subtitle?: string;
 }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const formatVal = (v: number) => currency === 'USD' ? fmtUSD(v) : fmt(v);
 
   if (items.length === 0) return null;
 
@@ -1975,7 +2047,7 @@ function CategoryBreakdown({
             {items.length} {items.length === 1 ? 'categoría' : 'categorías'}
           </span>
           <span className="text-xs font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-800 border border-slate-200">
-            Total: {fmt(total)}
+            Total: {formatVal(total)}
           </span>
         </div>
       </div>
@@ -2032,7 +2104,7 @@ function CategoryBreakdown({
                     {items[activeIndex].name}
                   </span>
                   <span className="text-sm font-bold text-slate-900 block truncate mt-0.5">
-                    {fmt(items[activeIndex].total)}
+                    {formatVal(items[activeIndex].total)}
                   </span>
                   <span className="text-[11px] font-bold text-blue-600 block">
                     {total > 0 ? `${((items[activeIndex].total / total) * 100).toFixed(1)}%` : '0%'}
@@ -2044,7 +2116,7 @@ function CategoryBreakdown({
                     Total
                   </span>
                   <span className="text-sm font-bold text-slate-900 block truncate mt-0.5">
-                    {fmt(total)}
+                    {formatVal(total)}
                   </span>
                   <span className="text-[10px] text-slate-400 font-medium block">
                     100%
@@ -2086,7 +2158,7 @@ function CategoryBreakdown({
                   />
                 </div>
                 <span className="text-slate-900 text-xs sm:text-sm font-semibold w-28 text-right shrink-0">
-                  {fmt(item.total)}
+                  {formatVal(item.total)}
                 </span>
                 <span className="text-slate-400 text-xs w-11 text-right font-medium shrink-0">
                   {pct.toFixed(1)}%
@@ -2235,7 +2307,7 @@ function TransactionTable({
                     </td>
                     <td className="px-6 py-3 text-slate-500 text-sm whitespace-nowrap font-medium">{fmtDate(t.date)}</td>
                     <td className={`px-6 py-3 text-sm font-bold whitespace-nowrap ${color}`}>
-                      {sign}{fmt(Number(t.amount))}
+                      {sign}{t.currency === 'USD' ? fmtUSD(Number(t.amount)) : fmt(Number(t.amount))}
                     </td>
                   </tr>
                 ))}

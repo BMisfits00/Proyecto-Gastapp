@@ -147,16 +147,31 @@ function parseBoxInfo(text, index) {
   const lower = clean.toLowerCase();
 
   let currency = 'ARS';
-  if (lower.includes('u$s') || lower.includes('usd') || lower.includes('dólar') || lower.includes('dolar')) {
+  if (
+    lower.includes('u$s') ||
+    lower.includes('usd') ||
+    lower.includes('dólar') ||
+    lower.includes('dolar') ||
+    lower.includes('ca u$s') ||
+    lower.includes('ca us$')
+  ) {
     currency = 'USD';
   }
 
   let name = '';
   if (currency === 'USD') {
     name = 'Caja de Ahorro en Dólares';
-  } else if (lower.includes('corriente') || lower.includes('cta cte') || lower.includes('cta. cte') || lower.includes('cc $')) {
+  } else if (
+    lower.includes('corriente') ||
+    lower.includes('cta cte') ||
+    lower.includes('cta. cte') ||
+    lower.includes('cc $')
+  ) {
     name = 'Cuenta Corriente en Pesos';
-  } else if (lower.includes('ahorro') || lower.includes('ca $')) {
+  } else if (
+    lower.includes('ahorro') ||
+    lower.includes('ca $')
+  ) {
     name = 'Caja de Ahorro en Pesos';
   } else {
     name = index === 0 ? 'Caja de Ahorro en Pesos' : `Cuenta Galicia ${index + 1}`;
@@ -177,10 +192,13 @@ async function scrapeMovements(page, store) {
   try {
     // Cuentas = menulink 2
     await goToSection(page, 2);
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(3500);
 
-    const boxLocator = page.locator('div.box_ctas.clickeable, div.box_ctas');
-    const count = await boxLocator.count();
+    // Esperar a que se rendericen las cards de cuentas
+    await page.waitForSelector('div.box_ctas', { timeout: 10000 }).catch(() => null);
+
+    const initialBoxes = page.locator('div.box_ctas.clickeable, div.box_ctas');
+    const count = await initialBoxes.count();
     console.log(`  Encontradas ${count} cajas/cuentas en pantalla.`);
 
     if (count === 0) {
@@ -192,20 +210,26 @@ async function scrapeMovements(page, store) {
 
     for (let i = 0; i < count; i++) {
       try {
-        const box = boxLocator.nth(i);
+        // Re-obtener los locators para evitar referencias DOM desactualizadas tras clicks
+        const currentBoxes = page.locator('div.box_ctas.clickeable, div.box_ctas');
+        const box = currentBoxes.nth(i);
         const cardText = await box.innerText().catch(() => '');
         const boxInfo = parseBoxInfo(cardText, i);
         console.log(`  [Caja ${i + 1}/${count}] ${boxInfo.name} (${boxInfo.currency})...`);
 
-        // Preparar promesa para interceptar GetMovimientosCuenta
+        // IMPORTANTE: Limpiar el store previo para no mezclar movimientos entre cuentas
+        delete store['GetMovimientosCuenta'];
+
+        // Preparar promesa para interceptar GetMovimientosCuenta generado por este click
         const responsePromise = page.waitForResponse(
           res => res.url().includes('GetMovimientosCuenta') && res.status() === 200,
-          { timeout: 12000 }
+          { timeout: 8000 }
         ).catch(() => null);
 
-        // Click en la caja
+        // Click en la caja específica
+        await box.scrollIntoViewIfNeeded().catch(() => {});
         await box.click({ force: true });
-        await page.waitForTimeout(1500);
+        await page.waitForTimeout(2000);
 
         const response = await responsePromise;
         let raw = null;
@@ -214,7 +238,8 @@ async function scrapeMovements(page, store) {
             raw = await response.json();
           } catch {}
         } else {
-          raw = store['GetMovimientosCuenta'];
+          // Solo si el interceptor global lo capturó en esta misma llamada
+          raw = store['GetMovimientosCuenta'] || null;
         }
 
         const rawMovs = raw?.Model?.Movimientos ?? [];
@@ -226,7 +251,7 @@ async function scrapeMovements(page, store) {
           type:        m.IconoLabel === 'Ingreso' ? 'income' : 'expense',
           amount:      Math.abs(m.IconoLabel === 'Ingreso' ? parseARS(m.ImporteCredito) : parseARS(m.ImporteDebito)),
           balance:     m.SaldoParcial,
-          currency:    m.Moneda === 2 ? 'USD' : boxInfo.currency,
+          currency:    boxInfo.currency,
           pending:     m.EsMovimientoPendiente,
         }));
 
@@ -263,6 +288,9 @@ async function scrapeMovements(page, store) {
   } catch (err) {
     await screenshot(page, 'movements-error');
     console.warn('  ⚠ Error general en movimientos:', err.message);
+    return { accounts: [], primaryMovements: [] };
+  }
+}
     return { accounts: [], primaryMovements: [] };
   }
 }
