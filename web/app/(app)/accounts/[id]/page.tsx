@@ -668,27 +668,6 @@ function CreateCategoryModal({ onCreated, onClose }: {
 
 // ─── SyncButton ───────────────────────────────────────────────────────────────
 
-type SyncState = 'idle' | 'loading' | 'success' | 'error';
-
-function SyncButton({ state, onClick }: { state: SyncState; onClick: () => void }) {
-  const isLoading = state === 'loading';
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={isLoading}
-      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors border shadow-xs ${
-        isLoading
-          ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
-          : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-      }`}
-    >
-      <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
-      {isLoading ? 'Sincronizando...' : 'Sincronizar Galicia'}
-    </button>
-  );
-}
-
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function AccountDetailPage() {
@@ -707,31 +686,8 @@ export default function AccountDetailPage() {
   const [filterRange, setFilterRange] = useState<DateRange>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading]         = useState(true);
-  const [syncState, setSyncState]     = useState<SyncState>('idle');
-  const [syncMsg, setSyncMsg]         = useState('');
   const [autoCatLoading, setAutoCatLoading] = useState(false);
   const [autoCatMsg, setAutoCatMsg]         = useState('');
-
-  async function handleSync() {
-    setSyncState('loading');
-    setSyncMsg('');
-    try {
-      const res = await fetch('/api/scrape/galicia', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account_id: id }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Error desconocido');
-      setSyncState('success');
-      const txInfo = data.newTxCount !== undefined ? ` · ${data.newTxCount} transacciones` : '';
-      setSyncMsg(`Sincronizado: Tarjeta ····${data.cardLastDigits} (${data.movementsCount} consumos)${txInfo}`);
-      setTimeout(() => window.location.reload(), 1500);
-    } catch (err: unknown) {
-      setSyncState('error');
-      setSyncMsg(err instanceof Error ? err.message : 'Error al sincronizar');
-    }
-  }
 
   async function handleAutoCategorize() {
     setAutoCatLoading(true);
@@ -904,15 +860,6 @@ export default function AccountDetailPage() {
         )}
       </div>
 
-      {syncMsg && (
-        <div className={`flex items-center gap-2 text-sm px-4 py-2.5 rounded-xl font-medium ${
-          syncState === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
-        }`}>
-          {syncState === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
-          {syncMsg}
-        </div>
-      )}
-
       {autoCatMsg && (
         <div className="flex items-center gap-2 text-sm px-4 py-2.5 rounded-xl font-medium bg-violet-50 text-violet-700 border border-violet-200">
           <Sparkles size={16} className="text-violet-600 shrink-0" />
@@ -952,15 +899,10 @@ export default function AccountDetailPage() {
             <span>{autoCatLoading ? 'Categorizando…' : 'Auto-categorizar'}</span>
           </button>
 
-          {isGalicia && (
-            <>
-              <SyncButton state={syncState} onClick={handleSync} />
-              {isPrimary && (
-                <div className="p-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200/80 shadow-xs" title="Tarjeta de Crédito Galicia">
-                  <CreditCardIcon size={15} />
-                </div>
-              )}
-            </>
+          {isGalicia && isPrimary && (
+            <div className="p-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200/80 shadow-xs" title="Tarjeta de Crédito Galicia vinculada">
+              <CreditCardIcon size={15} />
+            </div>
           )}
         </div>
       </div>
