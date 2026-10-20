@@ -8,6 +8,7 @@ INSERT INTO public.categories (id, user_id, name, type, icon, color) VALUES
   (gen_random_uuid(), NULL, 'Comida',       'expense', 'fast-food',    '#FF6B6B'),
   (gen_random_uuid(), NULL, 'Transporte',   'expense', 'car',          '#FFB347'),
   (gen_random_uuid(), NULL, 'Alquiler',     'expense', 'home',         '#FF8C94'),
+  (gen_random_uuid(), NULL, 'Suscripciones','expense', 'repeat',       '#8B5CF6'),
   (gen_random_uuid(), NULL, 'Ocio',         'expense', 'game-controller','#C084FC'),
   (gen_random_uuid(), NULL, 'Servicios',    'expense', 'flash',        '#60A5FA'),
   (gen_random_uuid(), NULL, 'Compras',      'expense', 'bag',          '#F472B6'),

@@ -194,6 +194,31 @@ export async function POST(req: NextRequest) {
     type: c.type === 'income' ? 'income' : 'expense',
   }));
 
+  // Asegurar categoría 'Suscripciones'
+  const hasSubs = categories.some(c => c.name.toLowerCase() === 'suscripciones' && c.type === 'expense');
+  if (!hasSubs) {
+    const { data: newCat } = await supabase
+      .from('categories')
+      .insert({
+        user_id:   user.id,
+        name:      'Suscripciones',
+        type:      'expense',
+        color:     '#8B5CF6',
+        icon:      'repeat',
+        is_active: true,
+      })
+      .select('id, name, type')
+      .single();
+
+    if (newCat) {
+      categories.push({
+        id:   newCat.id,
+        name: newCat.name,
+        type: 'expense',
+      });
+    }
+  }
+
   const [{ data: histTx }, { data: histCards }] = await Promise.all([
     supabase
       .from('transactions')

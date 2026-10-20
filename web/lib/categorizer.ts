@@ -129,13 +129,25 @@ const EXPENSE_KEYWORD_RULES: KeywordRule[] = [
       'hospital', 'sanatorio', 'medicamento', 'consultorio',
     ],
   },
-  // Ocio, Streaming y Entretenimiento
+  // Suscripciones digitales fijas y recurrentes
+  {
+    categoryName: 'Suscripciones',
+    keywords: [
+      'spotify', 'netflix', 'youtube', 'youtubeprem', 'disney', 'max', 'hbo',
+      'prime video', 'amazon prime', 'paramount', 'apple.com', 'apple services',
+      'icloud', 'google *', 'google storage', 'chatgpt', 'openai', 'github',
+      'midjourney', 'notion', 'crunchyroll', 'playstation plus', 'ps plus',
+      'xbox game pass', 'game pass', 'deezer', 'star+', 'flow',
+    ],
+  },
+  // Ocio, Salidas y Entretenimiento variable
   {
     categoryName: 'Ocio',
     keywords: [
-      'spotify', 'netflix', 'youtube', 'disney', 'max', 'hbo', 'prime video', 'steam',
-      'playstation', 'nintendo', 'cine', 'cinemark', 'hoyts', 'teatro', 'recital',
-      'ticketek', 'allaccess', 'passline', 'entradas', 'videojuegos', 'musica',
+      'cine', 'cinemark', 'hoyts', 'showroom', 'teatro', 'recital', 'concierto',
+      'ticketek', 'allaccess', 'passline', 'livepass', 'movistar arena', 'estadio',
+      'entradas', 'steam', 'playstation', 'nintendo', 'videojuegos', 'boliche',
+      'fiesta', 'parque', 'bowling', 'escape room', 'evento',
     ],
   },
   // Alquiler y Vivienda
@@ -332,11 +344,19 @@ export function predictCategory(
   for (const rule of rules) {
     for (const kw of rule.keywords) {
       if (normFull.includes(kw)) {
-        const catId = knowledge.categoryByNameAndType.get(`${normalizeText(rule.categoryName)}_${item.type}`);
+        let catId = knowledge.categoryByNameAndType.get(`${normalizeText(rule.categoryName)}_${item.type}`);
+        let finalCatName = rule.categoryName;
+
+        // Si la regla busca 'Suscripciones' pero aún no existe en la base de datos, fallback temporal a 'Ocio'
+        if (!catId && rule.categoryName === 'Suscripciones') {
+          catId = knowledge.categoryByNameAndType.get(`ocio_${item.type}`);
+          finalCatName = 'Ocio';
+        }
+
         if (catId) {
           return {
             categoryId: catId,
-            categoryName: rule.categoryName,
+            categoryName: finalCatName,
             confidence: 'rule',
             reason: `Palabra clave detectada: "${kw}"`,
           };
