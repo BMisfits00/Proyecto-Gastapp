@@ -32,6 +32,12 @@ const fmt = (n: number, currency = 'ARS') =>
     maximumFractionDigits: 2,
   }).format(n);
 
+const fmtUSD = (n: number) =>
+  `USD ${new Intl.NumberFormat('es-AR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n)}`;
+
 const fmtDate = (d: string) =>
   new Date(d + 'T00:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' });
 
@@ -126,7 +132,7 @@ export function ItemDetailModal({
             Importe total
           </span>
           <p className={`text-3xl font-extrabold ${amountColor}`}>
-            {currency === 'USD' ? `USD ${amount.toFixed(2)}` : `${amountSign}${fmt(amount, currency)}`}
+            {currency === 'USD' ? `${amountSign}${fmtUSD(amount)}` : `${amountSign}${fmt(amount, currency)}`}
           </p>
           <div className="mt-2 flex items-center justify-center gap-2">
             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${

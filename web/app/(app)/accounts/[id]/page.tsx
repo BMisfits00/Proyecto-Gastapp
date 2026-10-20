@@ -13,6 +13,7 @@ import {
 import { ItemDetailModal } from './ItemDetailModal';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+  PieChart, Pie, Cell,
 } from 'recharts';
 
 type Tab = 'balance' | 'income' | 'expense' | 'card' | 'investments';
@@ -38,6 +39,12 @@ const fmt = (n: number, currency = 'ARS') =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(n);
+
+const fmtUSD = (n: number) =>
+  `USD ${new Intl.NumberFormat('es-AR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n)}`;
 
 const fmtDate = (d: string) =>
   new Date(d + 'T00:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -1002,7 +1009,7 @@ function BalanceTab({
               <p className="text-sm font-bold text-slate-900">Tarjeta {card.brand || 'Crédito'}</p>
               <p className="text-xs text-slate-500 font-medium">Consumo ARS: <strong className="text-slate-800">{fmt(cardTotalARS || Number(card.consumption_ars))}</strong></p>
               {cardTotalUSD > 0 && (
-                <p className="text-xs text-slate-500 font-medium">Consumo USD: <strong className="text-slate-800">USD {cardTotalUSD.toFixed(2)}</strong></p>
+                <p className="text-xs text-slate-500 font-medium">Consumo USD: <strong className="text-slate-800">{fmtUSD(cardTotalUSD)}</strong></p>
               )}
             </div>
           ) : totalCapital > 0 ? (
@@ -1182,7 +1189,14 @@ function IncomeTab({
         <CategoryDropdown categories={filterCats} selected={catFilter} onSelect={setCatFilter} />
       </FilterBar>
       <SummaryCard amount={total} label="Total Ingresos Acreditados" color="text-emerald-600" bg="bg-emerald-50" icon={<TrendingUp size={22} />} />
-      {byCategory.length > 0 && <CategoryBreakdown items={byCategory} total={total} />}
+      {byCategory.length > 0 && (
+        <CategoryBreakdown
+          items={byCategory}
+          total={total}
+          title="Distribución de Ingresos"
+          subtitle="Gráfico circular de ingresos según el período seleccionado"
+        />
+      )}
       <TransactionTable
         transactions={filtered}
         type="income"
@@ -1250,7 +1264,14 @@ function ExpenseTab({
         <CategoryDropdown categories={filterCats} selected={catFilter} onSelect={setCatFilter} />
       </FilterBar>
       <SummaryCard amount={total} label="Total Gastos Debitado" color="text-rose-600" bg="bg-rose-50" icon={<TrendingDown size={22} />} />
-      {byCategory.length > 0 && <CategoryBreakdown items={byCategory} total={total} />}
+      {byCategory.length > 0 && (
+        <CategoryBreakdown
+          items={byCategory}
+          total={total}
+          title="Distribución de Gastos"
+          subtitle="Gráfico circular de gastos según el período seleccionado"
+        />
+      )}
       <TransactionTable
         transactions={filtered}
         type="expense"
@@ -1352,6 +1373,17 @@ function CardTab({
   const totalUSD   = filtered.filter(m => m.currency === 'USD').reduce((s, m) => s + Number(m.amount), 0);
   const pagedMvs   = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
+  const cardCatsMap: Record<string, { name: string; color: string; total: number }> = {};
+  filtered.filter(m => m.currency === 'ARS').forEach(m => {
+    const cat = getCategory(m);
+    const id = cat?.id ?? 'sin-categoria';
+    if (!cardCatsMap[id]) {
+      cardCatsMap[id] = { name: cat?.name ?? 'Sin categoría', color: cat?.color ?? '#64748B', total: 0 };
+    }
+    cardCatsMap[id].total += Number(m.amount);
+  });
+  const cardByCategory = Object.values(cardCatsMap).sort((a, b) => b.total - a.total);
+
   return (
     <div className="space-y-4">
       {/* Filtros en la parte superior idéntico a Ingresos y Gastos */}
@@ -1380,7 +1412,7 @@ function CardTab({
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           {[
             { label: 'Consumo ARS',    value: fmt(Number(card.consumption_ars)) },
-            { label: 'Consumo USD',    value: `USD ${Number(card.consumption_usd).toFixed(2)}` },
+            { label: 'Consumo USD',    value: fmtUSD(Number(card.consumption_usd)) },
             { label: 'Pago mínimo',    value: fmt(Number(card.min_payment)) },
             { label: 'Disponible ARS', value: fmt(Number(card.available_ars)) },
           ].map(({ label, value }) => (
@@ -1409,9 +1441,19 @@ function CardTab({
         </div>
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 text-center">
           <p className="text-slate-500 text-xs font-semibold mb-1 uppercase tracking-wide">USD período filtrado</p>
-          <p className="text-slate-900 text-2xl font-bold">USD {totalUSD.toFixed(2)}</p>
+          <p className="text-slate-900 text-2xl font-bold">{fmtUSD(totalUSD)}</p>
         </div>
       </div>
+
+      {/* Gráfico circular de consumos */}
+      {cardByCategory.length > 0 && (
+        <CategoryBreakdown
+          items={cardByCategory}
+          total={totalARS}
+          title="Distribución de Consumos Tarjeta (ARS)"
+          subtitle="Gráfico circular de consumos por rubro según el período seleccionado"
+        />
+      )}
 
       {/* Lista de consumos */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
@@ -1464,7 +1506,7 @@ function CardTab({
                       )}
                     </td>
                     <td className="px-6 py-3 text-rose-600 text-sm font-bold whitespace-nowrap">
-                      {m.currency === 'USD' ? `USD ${Number(m.amount).toFixed(2)}` : fmt(Number(m.amount))}
+                      {m.currency === 'USD' ? fmtUSD(Number(m.amount)) : fmt(Number(m.amount))}
                     </td>
                   </tr>
                 ))}
@@ -1618,25 +1660,153 @@ function groupByCategory(transactions: Transaction[]) {
   return Object.values(map).sort((a, b) => b.total - a.total);
 }
 
-function CategoryBreakdown({ items, total }: { items: { name: string; color: string; total: number }[]; total: number }) {
+function CategoryBreakdown({
+  items,
+  total,
+  title = 'Distribución por Rubro',
+  subtitle = 'Visualización de gastos según el período seleccionado',
+}: {
+  items: { name: string; color: string; total: number }[];
+  total: number;
+  title?: string;
+  subtitle?: string;
+}) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+
+  if (items.length === 0) return null;
+
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6">
-      <h3 className="text-slate-900 font-semibold mb-4 text-sm">Distribución por Rubro</h3>
-      <div className="space-y-3">
-        {items.map(item => {
-          const pct = total > 0 ? (item.total / total) * 100 : 0;
-          return (
-            <div key={item.name} className="flex items-center gap-3">
-              <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
-              <span className="text-slate-600 text-sm w-36 truncate font-medium">{item.name}</span>
-              <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200/50">
-                <div className="h-2 rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: item.color }} />
-              </div>
-              <span className="text-slate-900 text-sm font-semibold w-28 text-right">{fmt(item.total)}</span>
-              <span className="text-slate-400 text-xs w-10 text-right font-medium">{pct.toFixed(0)}%</span>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6">
+        <div>
+          <h3 className="text-slate-900 font-bold text-base">{title}</h3>
+          <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
+            {items.length} {items.length === 1 ? 'categoría' : 'categorías'}
+          </span>
+          <span className="text-xs font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-800 border border-slate-200">
+            Total: {fmt(total)}
+          </span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+        {/* Gráfico circular (Donut) */}
+        <div className="lg:col-span-5 flex flex-col items-center justify-center relative min-h-[240px]">
+          <div className="w-full h-60 relative flex items-center justify-center">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={items}
+                  dataKey="total"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={62}
+                  outerRadius={92}
+                  paddingAngle={items.length > 1 ? 2.5 : 0}
+                  onMouseEnter={(_, idx) => setActiveIndex(idx)}
+                  onMouseLeave={() => setActiveIndex(null)}
+                >
+                  {items.map((entry, index) => (
+                    <Cell
+                      key={`cell-${entry.name}-${index}`}
+                      fill={entry.color || '#64748B'}
+                      stroke="#ffffff"
+                      strokeWidth={2}
+                      className="cursor-pointer transition-opacity duration-200"
+                      opacity={activeIndex === null || activeIndex === index ? 1 : 0.45}
+                    />
+                  ))}
+                </Pie>
+                <Tooltip
+                  formatter={(value: any) => [fmt(Number(value)), 'Total']}
+                  contentStyle={{
+                    backgroundColor: '#ffffff',
+                    borderRadius: '12px',
+                    border: '1px solid #e2e8f0',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                  }}
+                  itemStyle={{ color: '#0f172a', fontWeight: 600 }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+
+            {/* Centro del donut con total o detalle hovered */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center">
+              {activeIndex !== null && items[activeIndex] ? (
+                <div className="px-3 max-w-[130px]">
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block truncate">
+                    {items[activeIndex].name}
+                  </span>
+                  <span className="text-sm font-bold text-slate-900 block truncate mt-0.5">
+                    {fmt(items[activeIndex].total)}
+                  </span>
+                  <span className="text-[11px] font-bold text-blue-600 block">
+                    {total > 0 ? `${((items[activeIndex].total / total) * 100).toFixed(1)}%` : '0%'}
+                  </span>
+                </div>
+              ) : (
+                <div className="px-3 max-w-[130px]">
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                    Total
+                  </span>
+                  <span className="text-sm font-bold text-slate-900 block truncate mt-0.5">
+                    {fmt(total)}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-medium block">
+                    100%
+                  </span>
+                </div>
+              )}
             </div>
-          );
-        })}
+          </div>
+        </div>
+
+        {/* Lista de desglose por categoría */}
+        <div className="lg:col-span-7 space-y-2 max-h-[260px] overflow-y-auto pr-1">
+          {items.map((item, index) => {
+            const pct = total > 0 ? (item.total / total) * 100 : 0;
+            const isHovered = activeIndex === index;
+            return (
+              <div
+                key={item.name}
+                onMouseEnter={() => setActiveIndex(index)}
+                onMouseLeave={() => setActiveIndex(null)}
+                className={`flex items-center gap-3 p-2.5 rounded-xl transition-all cursor-pointer ${
+                  isHovered ? 'bg-slate-50 ring-1 ring-slate-200 shadow-xs' : 'hover:bg-slate-50/70'
+                }`}
+              >
+                <div
+                  className="w-3 h-3 rounded-full shrink-0 transition-transform"
+                  style={{
+                    backgroundColor: item.color,
+                    transform: isHovered ? 'scale(1.2)' : 'scale(1)',
+                  }}
+                />
+                <span className="text-slate-700 text-xs sm:text-sm w-36 truncate font-medium">
+                  {item.name}
+                </span>
+                <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200/50">
+                  <div
+                    className="h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${pct}%`, backgroundColor: item.color }}
+                  />
+                </div>
+                <span className="text-slate-900 text-xs sm:text-sm font-semibold w-28 text-right shrink-0">
+                  {fmt(item.total)}
+                </span>
+                <span className="text-slate-400 text-xs w-11 text-right font-medium shrink-0">
+                  {pct.toFixed(1)}%
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
