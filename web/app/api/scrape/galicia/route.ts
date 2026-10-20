@@ -4,6 +4,11 @@ import { createServerClient }        from '@supabase/ssr';
 import { cookies }                   from 'next/headers';
 import { existsSync, readFileSync, statSync }  from 'fs';
 import path                          from 'path';
+import {
+  CategoryRef,
+  buildKnowledgeBase,
+  predictCategory,
+} from '@/lib/categorizer';
 
 // El scraper puede tardar 1-2 min
 export const maxDuration = 300;
@@ -14,36 +19,6 @@ const SKIP_DESCRIPTIONS = new Set([
   'transf. ctas propias',
   'transferencia de cuenta propia',
 ]);
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function categorizeAccountMovement(m: any): string {
-  const desc = (m.description || '').toLowerCase();
-  const detail = (m.detail || '').toLowerCase();
-
-  if (m.type === 'income') {
-    if (desc.includes('sueldos')) return 'Sueldo';
-    if (desc.includes('proveedores')) return 'Freelance';
-    if (desc.includes('interes capitalizado')) return 'Inversiones';
-    if (desc.includes('cobro plazo')) return 'Inversiones';
-    if (desc.includes('acreditacion plazo')) return 'Inversiones';
-    if (desc.includes('reintegro')) return 'Otros ingresos';
-    if (desc.includes('transferencia de terceros')) return 'Otros ingresos';
-    return 'Otros ingresos';
-  }
-
-  // expense
-  if (desc.includes('transporte') || desc.includes('sube')) return 'Transporte';
-  if (desc.includes('pago de servicios') || desc.includes('deb. autom')) return 'Servicios';
-  if (desc.includes('pago tarjeta')) return 'Otros gastos';
-  if (desc.includes('plazo fijo')) return 'Inversiones';
-  if (desc.includes('compra venta de dolares')) return 'Otros gastos';
-  if (desc.includes('alquiler')) return 'Alquiler';
-  if (desc.includes('transferencia a terceros')) {
-    if (detail.includes('osde') || detail.includes('swiss') || detail.includes('medicus')) return 'Salud';
-    return 'Otros gastos';
-  }
-  return 'Otros gastos';
-}
 
 // ─── Ejecutar el scraper ──────────────────────────────────────────────────────
 
@@ -207,25 +182,44 @@ export async function POST(req: NextRequest) {
     // Si la columna aún no fue creada en accounts, se ignora silenciosamente
   }
 
-  // Reemplazar movimientos con auto-categorización por merchant
-  if (movements.length > 0) {
-    // Construir mapa merchant_lower → category_id desde asignaciones previas del usuario
-    const { data: prevMvs } = await supabase
+  // ─── Cargar Base de Conocimiento para Auto-Categorización ──────────────────
+  const { data: dbCategories } = await supabase
+    .from('categories')
+    .select('id, name, type')
+    .or(`user_id.is.null,user_id.eq.${user.id}`);
+
+  const categories: CategoryRef[] = (dbCategories ?? []).map((c: any) => ({
+    id:   c.id,
+    name: c.name,
+    type: c.type === 'income' ? 'income' : 'expense',
+  }));
+
+  const [{ data: histTx }, { data: histCards }] = await Promise.all([
+    supabase
+      .from('transactions')
+      .select('description, category_id, type')
+      .eq('user_id', user.id)
+      .not('category_id', 'is', null),
+    supabase
       .from('card_movements')
       .select('merchant, category_id')
       .eq('user_id', user.id)
-      .not('category_id', 'is', null);
+      .not('category_id', 'is', null),
+  ]);
 
-    const merchantCatMap: Record<string, string> = {};
-    (prevMvs ?? []).forEach((m: { merchant: string; category_id: string }) => {
-      merchantCatMap[m.merchant.trim().toLowerCase()] = m.category_id;
-    });
+  const knowledge = buildKnowledgeBase(categories, histTx ?? [], histCards ?? []);
 
+  // ─── Reemplazar movimientos de tarjeta con auto-categorización ──────────────
+  if (movements.length > 0) {
     await supabase.from('card_movements').delete().eq('card_id', savedCard.id);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rows = movements.map((m: any) => {
-      const key = (m.merchant ?? '').trim().toLowerCase();
+      const match = predictCategory(
+        { merchant: m.merchant, type: 'expense' },
+        knowledge,
+        categories,
+      );
       return {
         card_id:     savedCard.id,
         user_id:     user.id,
@@ -235,7 +229,7 @@ export async function POST(req: NextRequest) {
         currency:    m.currency,
         installment: m.installment ?? null,
         type:        m.type === 'instalments' ? 'instalments' : 'credit',
-        category_id: merchantCatMap[key] ?? null,
+        category_id: match?.categoryId ?? null,
       };
     });
 
@@ -250,27 +244,6 @@ export async function POST(req: NextRequest) {
   let newTxCount = 0;
 
   if (accountMovements.length > 0) {
-    const { data: dbCategories } = await supabase
-      .from('categories')
-      .select('id, name, type')
-      .or(`user_id.is.null,user_id.eq.${user.id}`);
-
-    const catByName: Record<string, string> = {};
-    (dbCategories ?? []).forEach((c: { id: string; name: string }) => {
-      catByName[c.name.trim().toLowerCase()] = c.id;
-    });
-
-    const { data: prevTx } = await supabase
-      .from('transactions')
-      .select('description, category_id')
-      .eq('user_id', user.id)
-      .not('category_id', 'is', null);
-
-    const descCatMap: Record<string, string> = {};
-    (prevTx ?? []).forEach((t: { description: string | null; category_id: string }) => {
-      if (t.description) descCatMap[t.description.trim().toLowerCase()] = t.category_id;
-    });
-
     const { data: existingTransactions } = await supabase
       .from('transactions')
       .select('date, amount, type, description')
@@ -310,21 +283,25 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      let catId = descCatMap[descNorm] ?? null;
-      if (!catId) {
-        const catName = categorizeAccountMovement(m);
-        catId = catByName[catName.toLowerCase()] ?? null;
-      }
+      const match = predictCategory(
+        {
+          description: desc,
+          detail:      m.detail,
+          type:        m.type === 'income' ? 'income' : 'expense',
+        },
+        knowledge,
+        categories,
+      );
 
       newTransactionsToInsert.push({
-        user_id: user.id,
+        user_id:     user.id,
         account_id,
-        category_id: catId,
-        type: m.type === 'income' ? 'income' : 'expense',
-        amount: amountNum,
-        currency: m.currency || 'ARS',
+        category_id: match?.categoryId ?? null,
+        type:        m.type === 'income' ? 'income' : 'expense',
+        amount:      amountNum,
+        currency:    m.currency || 'ARS',
         description: desc,
-        date: m.date,
+        date:        m.date,
       });
     }
 

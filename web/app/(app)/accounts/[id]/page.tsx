@@ -7,7 +7,7 @@ import { Account, Transaction, CreditCard, CardMovement, Investment } from '@/li
 import {
   ArrowLeft, TrendingUp, TrendingDown, CreditCard as CreditCardIcon,
   Landmark, X, RefreshCw, CheckCircle, AlertCircle,
-  ChevronLeft, ChevronRight, Calendar, Scale,
+  ChevronLeft, ChevronRight, Calendar, Scale, Sparkles,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -630,6 +630,8 @@ export default function AccountDetailPage() {
   const [loading, setLoading]         = useState(true);
   const [syncState, setSyncState]     = useState<SyncState>('idle');
   const [syncMsg, setSyncMsg]         = useState('');
+  const [autoCatLoading, setAutoCatLoading] = useState(false);
+  const [autoCatMsg, setAutoCatMsg]         = useState('');
 
   async function handleSync() {
     setSyncState('loading');
@@ -649,6 +651,26 @@ export default function AccountDetailPage() {
     } catch (err: unknown) {
       setSyncState('error');
       setSyncMsg(err instanceof Error ? err.message : 'Error al sincronizar');
+    }
+  }
+
+  async function handleAutoCategorize() {
+    setAutoCatLoading(true);
+    setAutoCatMsg('');
+    try {
+      const res = await fetch('/api/categories/auto-categorize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Error al auto-categorizar');
+      setAutoCatMsg(`¡Listo! Se categorizaron automáticamente ${data.totalCategorized} movimientos.`);
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Error al auto-categorizar');
+    } finally {
+      setAutoCatLoading(false);
     }
   }
 
@@ -747,7 +769,14 @@ export default function AccountDetailPage() {
         </div>
       )}
 
-      {/* Fila de Tabs con el botón Sincronizar Galicia y el icono de la tarjeta con margen interior */}
+      {autoCatMsg && (
+        <div className="flex items-center gap-2 text-sm px-4 py-2.5 rounded-xl font-medium bg-violet-50 text-violet-700 border border-violet-200">
+          <Sparkles size={16} className="text-violet-600 shrink-0" />
+          {autoCatMsg}
+        </div>
+      )}
+
+      {/* Fila de Tabs con botones de acción con margen interior */}
       <div className="flex items-center justify-between border-b border-slate-200 pb-0 gap-3">
         <div className="flex gap-1 sm:gap-2">
           {TABS.map(t => (
@@ -767,14 +796,27 @@ export default function AccountDetailPage() {
           ))}
         </div>
 
-        {isGalicia && (
-          <div className="flex items-center gap-2 pb-1 pr-4 sm:pr-10 shrink-0">
-            <SyncButton state={syncState} onClick={handleSync} />
-            <div className="p-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200/80 shadow-xs" title="Tarjeta de Crédito Galicia">
-              <CreditCardIcon size={15} />
-            </div>
-          </div>
-        )}
+        <div className="flex items-center gap-2 pb-1 pr-4 sm:pr-10 shrink-0">
+          <button
+            type="button"
+            onClick={handleAutoCategorize}
+            disabled={autoCatLoading}
+            title="Auto-categorizar movimientos sin categoría según patrones y palabras clave"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 transition-colors shadow-xs disabled:opacity-50"
+          >
+            <Sparkles size={13} className={autoCatLoading ? 'animate-spin' : 'text-violet-600'} />
+            <span>{autoCatLoading ? 'Categorizando…' : 'Auto-categorizar'}</span>
+          </button>
+
+          {isGalicia && (
+            <>
+              <SyncButton state={syncState} onClick={handleSync} />
+              <div className="p-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200/80 shadow-xs" title="Tarjeta de Crédito Galicia">
+                <CreditCardIcon size={15} />
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Contenido */}
