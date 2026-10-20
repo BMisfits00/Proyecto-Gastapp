@@ -7,14 +7,18 @@ import { Account, Transaction, CreditCard, CardMovement, Investment } from '@/li
 import {
   ArrowLeft, TrendingUp, TrendingDown, CreditCard as CreditCardIcon,
   Landmark, X, RefreshCw, CheckCircle, AlertCircle,
-  ChevronLeft, ChevronRight, Calendar,
+  ChevronLeft, ChevronRight, Calendar, Scale,
 } from 'lucide-react';
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+} from 'recharts';
 
-type Tab = 'income' | 'expense' | 'card' | 'investments';
+type Tab = 'balance' | 'income' | 'expense' | 'card' | 'investments';
 
 const PAGE_SIZE = 10;
 
 const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
+  { key: 'balance',     label: 'Balance',     icon: <Scale size={16} /> },
   { key: 'income',      label: 'Ingresos',   icon: <TrendingUp size={16} /> },
   { key: 'expense',     label: 'Gastos',      icon: <TrendingDown size={16} /> },
   { key: 'card',        label: 'Tarjeta',     icon: <CreditCardIcon size={16} /> },
@@ -616,7 +620,7 @@ export default function AccountDetailPage() {
   const [card, setCard]               = useState<CreditCard | null>(null);
   const [cardMvs, setCardMvs]         = useState<CardMovement[]>([]);
   const [investments, setInvestments] = useState<Investment[]>([]);
-  const [tab, setTab]                 = useState<Tab>('income');
+  const [tab, setTab]                 = useState<Tab>('balance');
   const [loading, setLoading]         = useState(true);
   const [syncState, setSyncState]     = useState<SyncState>('idle');
   const [syncMsg, setSyncMsg]         = useState('');
@@ -767,10 +771,256 @@ export default function AccountDetailPage() {
       </div>
 
       {/* Contenido */}
+      {tab === 'balance'     && <BalanceTab income={income} expenses={expenses} card={card} cardMvs={cardMvs} investments={investments} />}
       {tab === 'income'      && <IncomeTab transactions={income} />}
       {tab === 'expense'     && <ExpenseTab transactions={expenses} />}
       {tab === 'card'        && <CardTab card={card} movements={cardMvs} accountId={id} />}
       {tab === 'investments' && <InvestmentsTab investments={investments} />}
+    </div>
+  );
+}
+
+// ─── Tab: Balance (Comparativa Ejecutiva) ─────────────────────────────────────
+
+function BalanceTab({
+  income,
+  expenses,
+  card,
+  cardMvs,
+  investments,
+}: {
+  income: Transaction[];
+  expenses: Transaction[];
+  card: CreditCard | null;
+  cardMvs: CardMovement[];
+  investments: Investment[];
+}) {
+  const [range, setRange] = useState<DateRange>(null);
+  const [year, setYear]   = useState('');
+  const [month, setMonth] = useState('');
+
+  const allTx = [...income, ...expenses];
+  const afterYM_income  = applyYearMonth(income, year, month);
+  const filteredIncome  = applyRangeFilter(afterYM_income, range);
+
+  const afterYM_expense = applyYearMonth(expenses, year, month);
+  const filteredExpense = applyRangeFilter(afterYM_expense, range);
+
+  const afterYM_card    = applyYearMonth(cardMvs, year, month);
+  const filteredCardMvs = applyRangeFilter(afterYM_card, range);
+
+  const totalIncome  = filteredIncome.reduce((s, t) => s + Number(t.amount), 0);
+  const totalExpense = filteredExpense.reduce((s, t) => s + Number(t.amount), 0);
+  const netFlow      = totalIncome - totalExpense;
+
+  const cardTotalARS = filteredCardMvs.filter(m => m.currency === 'ARS').reduce((s, m) => s + Number(m.amount), 0);
+  const cardTotalUSD = filteredCardMvs.filter(m => m.currency === 'USD').reduce((s, m) => s + Number(m.amount), 0);
+
+  const totalCapital = investments.reduce((s, i) => s + Number(i.initial_amount), 0);
+  const totalGain    = investments.reduce((s, i) => s + Number(i.gain_amount ?? 0), 0);
+
+  // Evolución mensual comparativa (últimos 6 meses)
+  const monthlyMap: Record<string, { mes: string; Ingresos: number; Gastos: number }> = {};
+  allTx.forEach(t => {
+    const d = new Date(t.date + 'T00:00:00');
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = d.toLocaleString('es-AR', { month: 'short', year: '2-digit' });
+    if (!monthlyMap[key]) monthlyMap[key] = { mes: label, Ingresos: 0, Gastos: 0 };
+    if (t.type === 'income') monthlyMap[key].Ingresos += Number(t.amount);
+    if (t.type === 'expense') monthlyMap[key].Gastos += Number(t.amount);
+  });
+  const chartData = Object.entries(monthlyMap).sort(([a], [b]) => a.localeCompare(b)).slice(-6).map(([, v]) => v);
+
+  const incomeByCat  = groupByCategory(filteredIncome);
+  const expenseByCat = groupByCategory(filteredExpense);
+
+  return (
+    <div className="space-y-6">
+      {/* Filtros */}
+      <FilterBar>
+        <YearMonthFilter items={allTx} year={year} month={month} onYearChange={setYear} onMonthChange={setMonth} />
+        <DateRangePicker value={range} onChange={setRange} />
+      </FilterBar>
+
+      {/* Tarjetas métricas comparativas de cabecera */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Ingresos */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Ingresos Totales</span>
+            <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600">
+              <TrendingUp size={18} />
+            </div>
+          </div>
+          <p className="text-2xl font-bold text-emerald-600 mt-2">{fmt(totalIncome)}</p>
+          <p className="text-xs text-slate-400 mt-1 font-medium">{filteredIncome.length} acreditaciones</p>
+        </div>
+
+        {/* Gastos */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Gastos Totales</span>
+            <div className="p-2 rounded-lg bg-rose-50 text-rose-600">
+              <TrendingDown size={18} />
+            </div>
+          </div>
+          <p className="text-2xl font-bold text-rose-600 mt-2">{fmt(totalExpense)}</p>
+          <p className="text-xs text-slate-400 mt-1 font-medium">{filteredExpense.length} débitos</p>
+        </div>
+
+        {/* Flujo Neto / Balance */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Flujo Neto / Balance</span>
+            <div className={`p-2 rounded-lg ${netFlow >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+              <Scale size={18} />
+            </div>
+          </div>
+          <p className={`text-2xl font-bold mt-2 ${netFlow >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+            {netFlow >= 0 ? '+' : ''}{fmt(netFlow)}
+          </p>
+          <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded-md mt-1 ${
+            netFlow >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+          }`}>
+            {netFlow >= 0 ? 'Superávit en cuenta' : 'Déficit en cuenta'}
+          </span>
+        </div>
+
+        {/* Productos vinculados (Tarjeta / Inversiones) */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Productos Vinculados</span>
+            <div className="p-2 rounded-lg bg-blue-50 text-blue-700">
+              <CreditCardIcon size={18} />
+            </div>
+          </div>
+          {card ? (
+            <div className="mt-2">
+              <p className="text-sm font-bold text-slate-900">Tarjeta {card.brand || 'Crédito'}</p>
+              <p className="text-xs text-slate-500 font-medium">Consumo ARS: <strong className="text-slate-800">{fmt(cardTotalARS || Number(card.consumption_ars))}</strong></p>
+              {cardTotalUSD > 0 && (
+                <p className="text-xs text-slate-500 font-medium">Consumo USD: <strong className="text-slate-800">USD {cardTotalUSD.toFixed(2)}</strong></p>
+              )}
+            </div>
+          ) : totalCapital > 0 ? (
+            <div className="mt-2">
+              <p className="text-sm font-bold text-slate-900">Inversiones activas</p>
+              <p className="text-xs text-emerald-600 font-semibold">{fmt(totalCapital)} colocados</p>
+              {totalGain > 0 && <p className="text-[11px] text-emerald-600">+{fmt(totalGain)} rendimiento</p>}
+            </div>
+          ) : (
+            <div className="mt-2">
+              <p className="text-sm font-semibold text-slate-700">Sin tarjeta asociada</p>
+              <p className="text-xs text-slate-400">Podés sincronizarla en la solapa Tarjeta</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Gráfico Comparativo: Ingresos vs Gastos */}
+      {chartData.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-base font-bold text-slate-900">Comparativa Mensual: Ingresos vs Gastos</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Evolución histórica semestral consolidada de esta cuenta</p>
+            </div>
+            <div className="flex items-center gap-3 text-xs font-medium">
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-sm bg-emerald-500" />
+                <span className="text-slate-600">Ingresos</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-sm bg-rose-500" />
+                <span className="text-slate-600">Gastos</span>
+              </div>
+            </div>
+          </div>
+
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+              <XAxis dataKey="mes" stroke="#94A3B8" tick={{ fill: '#64748B', fontSize: 12 }} />
+              <YAxis stroke="#94A3B8" tick={{ fill: '#64748B', fontSize: 12 }} />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: '#FFFFFF',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: 8,
+                  boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                }}
+                labelStyle={{ color: '#0F172A', fontWeight: 600 }}
+                formatter={(v) => fmt(Number(v))}
+              />
+              <Bar dataKey="Ingresos" fill="#10B981" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="Gastos" fill="#EF4444" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Desglose Comparativo por Categorías (Lado a Lado) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <TrendingUp size={16} className="text-emerald-600" />
+              Composición de Ingresos
+            </h3>
+            <span className="text-xs font-semibold text-emerald-600">{fmt(totalIncome)}</span>
+          </div>
+          {incomeByCat.length === 0 ? (
+            <p className="text-slate-400 text-xs text-center py-8">Sin ingresos registrados en el período</p>
+          ) : (
+            <div className="space-y-3">
+              {incomeByCat.slice(0, 5).map(item => {
+                const pct = totalIncome > 0 ? (item.total / totalIncome) * 100 : 0;
+                return (
+                  <div key={item.name} className="flex items-center gap-3">
+                    <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+                    <span className="text-slate-600 text-xs w-32 truncate font-medium">{item.name}</span>
+                    <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
+                      <div className="h-2 rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="text-slate-900 text-xs font-semibold w-24 text-right">{fmt(item.total)}</span>
+                    <span className="text-slate-400 text-[11px] w-8 text-right font-medium">{pct.toFixed(0)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <TrendingDown size={16} className="text-rose-600" />
+              Composición de Egresos
+            </h3>
+            <span className="text-xs font-semibold text-rose-600">{fmt(totalExpense)}</span>
+          </div>
+          {expenseByCat.length === 0 ? (
+            <p className="text-slate-400 text-xs text-center py-8">Sin gastos registrados en el período</p>
+          ) : (
+            <div className="space-y-3">
+              {expenseByCat.slice(0, 5).map(item => {
+                const pct = totalExpense > 0 ? (item.total / totalExpense) * 100 : 0;
+                return (
+                  <div key={item.name} className="flex items-center gap-3">
+                    <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+                    <span className="text-slate-600 text-xs w-32 truncate font-medium">{item.name}</span>
+                    <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
+                      <div className="h-2 rounded-full bg-rose-500" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="text-slate-900 text-xs font-semibold w-24 text-right">{fmt(item.total)}</span>
+                    <span className="text-slate-400 text-[11px] w-8 text-right font-medium">{pct.toFixed(0)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
