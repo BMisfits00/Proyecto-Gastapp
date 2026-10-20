@@ -106,37 +106,61 @@ export async function POST(req: NextRequest) {
     if (m) dueDate = `${new Date().getFullYear()}-${m[2]}-${m[1]}`;
   }
 
-  // Upsert credit_card
-  const { data: savedCard, error: cardErr } = await supabase
-    .from('credit_cards')
-    .upsert(
-      {
-        account_id,
-        user_id:         user.id,
-        last_digits:     summary.lastDigits,
-        brand:           summary.brand    ?? null,
-        product:         summary.product  ?? null,
-        holder:          summary.holder   ?? null,
-        due_date:        dueDate,
-        closing_date:    summary.closingDate  ?? null,
-        consumption_ars: summary.consumptionARS ?? 0,
-        consumption_usd: summary.consumptionUSD ?? 0,
-        min_payment:     summary.minPayment ?? 0,
-        available_ars:   summary.availableARS ?? 0,
-        available_usd:   summary.availableUSD ?? 0,
-        synced_at:       syncTimestamp,
-      },
-      { onConflict: 'account_id,user_id' },
-    )
-    .select('id')
-    .single();
+  // Guardar o actualizar credit_card (robusto frente a restricciones o sin UNIQUE constraint)
+  const cardPayload = {
+    account_id,
+    user_id:         user.id,
+    last_digits:     summary.lastDigits,
+    brand:           summary.brand    ?? null,
+    product:         summary.product  ?? null,
+    holder:          summary.holder   ?? null,
+    due_date:        dueDate,
+    closing_date:    summary.closingDate  ?? null,
+    consumption_ars: summary.consumptionARS ?? 0,
+    consumption_usd: summary.consumptionUSD ?? 0,
+    min_payment:     summary.minPayment ?? 0,
+    available_ars:   summary.availableARS ?? 0,
+    available_usd:   summary.availableUSD ?? 0,
+    synced_at:       syncTimestamp,
+  };
 
-  if (cardErr || !savedCard?.id) {
-    return NextResponse.json(
-      { error: `Error al guardar tarjeta: ${cardErr?.message ?? 'sin id'}` },
-      { status: 500 },
-    );
+  const { data: existingCard } = await supabase
+    .from('credit_cards')
+    .select('id')
+    .eq('account_id', account_id)
+    .maybeSingle();
+
+  let savedCardId = existingCard?.id;
+
+  if (savedCardId) {
+    const { error: updateErr } = await supabase
+      .from('credit_cards')
+      .update(cardPayload)
+      .eq('id', savedCardId);
+
+    if (updateErr) {
+      return NextResponse.json(
+        { error: `Error al actualizar tarjeta: ${updateErr.message}` },
+        { status: 500 },
+      );
+    }
+  } else {
+    const { data: newCard, error: insertErr } = await supabase
+      .from('credit_cards')
+      .insert(cardPayload)
+      .select('id')
+      .single();
+
+    if (insertErr || !newCard?.id) {
+      return NextResponse.json(
+        { error: `Error al guardar tarjeta: ${insertErr?.message ?? 'sin id'}` },
+        { status: 500 },
+      );
+    }
+    savedCardId = newCard.id;
   }
+
+  const savedCard = { id: savedCardId };
 
   // Actualizar last_scraped_at en la cuenta si existe la columna
   try {
