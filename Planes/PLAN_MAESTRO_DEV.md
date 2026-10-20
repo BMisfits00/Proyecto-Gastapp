@@ -85,3 +85,14 @@ Gastapp opera bajo un modelo de arquitectura desacoplada y reactiva en tres capa
 | 2026-10-20 | v3.0.0 | Feature | Migración 007 y soporte de transferencias en mobile. | Dev Lead |
 | 2026-10-20 | v3.0.0 | QA / CI | Suite de Jest con 12 tests unitarios al 100%. | Dev Lead |
 | 2026-10-20 | v3.0.0 | Feature | Servicio y hook de rendimiento diario (`daily_yields`). | Dev Lead |
+| 2026-10-20 | v3.1.0 | Web UI | Rediseño integral estilo Portal Bancario (shadcn/ui, azul marino/slate/blanco). | Dev Lead |
+
+---
+
+## 4. Backlog de Próximas Mejoras
+
+* **Recuperación de Contraseña (`authService.resetPassword`):**
+  * Agregar botón *"¿Olvidaste tu contraseña?"* en la pantalla de login tanto en la app web (`/login`) como en la mobile (`LoginScreen.tsx`).
+  * Integración con `supabase.auth.resetPasswordForEmail(email, { redirectTo: '...' })`.
+  * Pantalla para ingreso y confirmación de nueva contraseña.
+

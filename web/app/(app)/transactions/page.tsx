@@ -3,7 +3,26 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Transaction, Account, Category } from '@/lib/types';
-import { Plus, Search } from 'lucide-react';
+import { Plus, Search, ArrowUpRight, ArrowDownLeft, ArrowRightLeft } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
+} from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -29,7 +48,12 @@ export default function TransactionsPage() {
       if (!user) return;
 
       const [{ data: txs }, { data: accs }, { data: cats }] = await Promise.all([
-        supabase.from('transactions').select('*, category:categories(*), account:accounts(*)').eq('user_id', user.id).order('date', { ascending: false }).limit(100),
+        supabase
+          .from('transactions')
+          .select('*, category:categories(*), account:accounts(*)')
+          .eq('user_id', user.id)
+          .order('date', { ascending: false })
+          .limit(100),
         supabase.from('accounts').select('*').eq('user_id', user.id).eq('is_active', true),
         supabase.from('categories').select('*').or(`user_id.eq.${user.id},user_id.is.null`),
       ]);
@@ -37,7 +61,7 @@ export default function TransactionsPage() {
       setTransactions(txs || []);
       setAccounts(accs || []);
       setCategories(cats || []);
-      if (accs && accs.length > 0) setForm(f => ({ ...f, account_id: accs[0].id }));
+      if (accs && accs.length > 0) setForm((f) => ({ ...f, account_id: accs[0].id }));
       setLoading(false);
     }
     load();
@@ -46,7 +70,12 @@ export default function TransactionsPage() {
   async function refreshTransactions() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { data: txs } = await supabase.from('transactions').select('*, category:categories(*), account:accounts(*)').eq('user_id', user.id).order('date', { ascending: false }).limit(100);
+    const { data: txs } = await supabase
+      .from('transactions')
+      .select('*, category:categories(*), account:accounts(*)')
+      .eq('user_id', user.id)
+      .order('date', { ascending: false })
+      .limit(100);
     setTransactions(txs || []);
   }
 
@@ -59,7 +88,7 @@ export default function TransactionsPage() {
       user_id: user.id,
       type: form.type,
       amount: parseFloat(form.amount),
-      description: form.description,
+      description: form.description.trim() || null,
       date: form.date,
       account_id: form.account_id,
       category_id: form.category_id || null,
@@ -67,156 +96,267 @@ export default function TransactionsPage() {
     });
 
     setShowForm(false);
-    setForm(f => ({ ...f, amount: '', description: '', category_id: '' }));
+    setForm((f) => ({ ...f, amount: '', description: '', category_id: '' }));
     refreshTransactions();
   }
 
-  const fmt = (n: number) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n);
+  const fmt = (n: number) =>
+    new Intl.NumberFormat('es-AR', {
+      style: 'currency',
+      currency: 'ARS',
+      maximumFractionDigits: 0,
+    }).format(n);
 
-  const filtered = transactions.filter(t => {
+  const filtered = transactions.filter((t) => {
     if (filter !== 'all' && t.type !== filter) return false;
     if (search && !t.description?.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
 
-  const filteredCats = categories.filter(c => c.type === form.type);
+  const filteredCats = categories.filter((c) => c.type === form.type);
 
   return (
-    <div className="p-8 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-8 space-y-6 max-w-7xl mx-auto">
+      {/* Encabezado Bancario */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
-          <h1 className="text-2xl font-bold text-white">Transacciones</h1>
-          <p className="text-[#8888AA] text-sm mt-1">{filtered.length} movimientos</p>
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Extracto de Movimientos</h1>
+          <p className="text-slate-500 text-sm mt-1">{filtered.length} operaciones registradas</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 bg-[#7B68EE] hover:bg-[#9B8FFF] text-white px-5 py-2.5 rounded-xl font-medium text-sm transition-colors"
-        >
-          <Plus size={16} /> Nueva transacción
-        </button>
+        <Button onClick={() => setShowForm(true)} className="gap-2">
+          <Plus className="w-4 h-4" /> Nueva transacción
+        </Button>
       </div>
 
-      {/* Filtros */}
-      <div className="flex items-center gap-4">
-        <div className="relative flex-1 max-w-sm">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8888AA]" />
-          <input
+      {/* Controles de Filtros con shadcn Button e Input */}
+      <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-2 w-full md:w-auto">
+          <Button
+            variant={filter === 'all' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setFilter('all')}
+          >
+            Todos los movimientos
+          </Button>
+          <Button
+            variant={filter === 'income' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setFilter('income')}
+          >
+            Acreditaciones
+          </Button>
+          <Button
+            variant={filter === 'expense' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setFilter('expense')}
+          >
+            Débitos
+          </Button>
+        </div>
+
+        <div className="relative w-full md:w-80">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Input
+            placeholder="Buscar por concepto o comercio..."
             value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Buscar..."
-            className="w-full bg-[#1A1A2E] border border-[#2A2A45] rounded-xl pl-9 pr-4 py-2.5 text-white text-sm placeholder-[#55556A] focus:outline-none focus:border-[#7B68EE]"
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9 bg-white"
           />
         </div>
-        <div className="flex bg-[#1A1A2E] border border-[#2A2A45] rounded-xl overflow-hidden">
-          {(['all', 'income', 'expense'] as const).map(f => (
-            <button
-              type="button"
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`px-4 py-2.5 text-sm font-medium transition-colors ${filter === f ? 'bg-[#7B68EE] text-white' : 'text-[#8888AA] hover:text-white'}`}
-            >
-              {f === 'all' ? 'Todos' : f === 'income' ? 'Ingresos' : 'Gastos'}
-            </button>
-          ))}
-        </div>
       </div>
 
-      {/* Lista */}
-      <div className="bg-[#1A1A2E] rounded-2xl border border-[#2A2A45] overflow-hidden">
-        {loading ? (
-          <p className="text-[#8888AA] text-sm text-center py-12">Cargando...</p>
-        ) : filtered.length === 0 ? (
-          <p className="text-[#8888AA] text-sm text-center py-12">No hay transacciones</p>
-        ) : (
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-[#2A2A45]">
-                {['Descripción', 'Categoría', 'Cuenta', 'Fecha', 'Monto'].map(h => (
-                  <th key={h} className="text-left px-6 py-4 text-[#8888AA] text-xs font-medium uppercase tracking-wide">{h}</th>
+      {/* Tabla con shadcn Table */}
+      <Card className="border-slate-200 shadow-xs bg-white overflow-hidden">
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="py-20 text-center">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#1E40AF] mb-3" />
+              <p className="text-slate-500 text-sm">Cargando movimientos...</p>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="py-20 text-center text-slate-400 text-sm font-medium">
+              No se encontraron movimientos con los filtros seleccionados.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[130px]">Fecha</TableHead>
+                  <TableHead>Concepto / Detalle</TableHead>
+                  <TableHead>Categoría</TableHead>
+                  <TableHead>Cuenta de Cargo</TableHead>
+                  <TableHead className="text-right">Importe</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((t) => (
+                  <TableRow key={t.id} className="hover:bg-slate-50/70">
+                    <TableCell className="text-slate-500 text-xs font-mono font-medium">{t.date}</TableCell>
+                    <TableCell className="font-semibold text-slate-900">
+                      <div className="flex items-center gap-2.5">
+                        <div
+                          className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${
+                            t.type === 'income'
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : t.type === 'transfer'
+                              ? 'bg-blue-50 text-[#1E40AF]'
+                              : 'bg-red-50 text-red-700'
+                          }`}
+                        >
+                          {t.type === 'income' ? (
+                            <ArrowUpRight className="w-3.5 h-3.5" />
+                          ) : t.type === 'transfer' ? (
+                            <ArrowRightLeft className="w-3.5 h-3.5" />
+                          ) : (
+                            <ArrowDownLeft className="w-3.5 h-3.5" />
+                          )}
+                        </div>
+                        <span>
+                          {t.description || (t.type === 'transfer' ? 'Transferencia' : 'Sin descripción')}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {t.category ? (
+                        <Badge variant="secondary" className="gap-1.5 font-medium text-slate-700">
+                          <span
+                            className="w-2 h-2 rounded-full"
+                            style={{ backgroundColor: t.category.color ?? '#1E40AF' }}
+                          />
+                          {t.category.name}
+                        </Badge>
+                      ) : (
+                        <span className="text-slate-400 text-xs">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-slate-700 text-sm font-medium">
+                        {t.account?.name ?? '—'}
+                      </span>
+                    </TableCell>
+                    <TableCell
+                      className={`text-right font-bold tracking-tight text-base ${
+                        t.type === 'income'
+                          ? 'text-emerald-700'
+                          : t.type === 'transfer'
+                          ? 'text-[#1E40AF]'
+                          : 'text-red-700'
+                      }`}
+                    >
+                      {t.type === 'income' ? '+' : t.type === 'transfer' ? '⇄ ' : '-'}{fmt(Number(t.amount))}
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(t => (
-                <tr key={t.id} className="border-b border-[#2A2A45] last:border-0 hover:bg-[#252540] transition-colors">
-                  <td className="px-6 py-4 text-white text-sm">{t.description || '—'}</td>
-                  <td className="px-6 py-4">
-                    <span className="text-xs bg-[#252540] text-[#8888AA] px-2 py-1 rounded-lg">
-                      {t.category?.name || '—'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-[#8888AA] text-sm">{t.account?.name || '—'}</td>
-                  <td className="px-6 py-4 text-[#8888AA] text-sm">{t.date}</td>
-                  <td className={`px-6 py-4 text-sm font-semibold ${t.type === 'income' ? 'text-[#00D4AA]' : 'text-[#FF6B6B]'}`}>
-                    {t.type === 'income' ? '+' : '-'}{fmt(Number(t.amount))}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
-      {/* Modal nueva transacción */}
-      {showForm && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-[#1A1A2E] rounded-2xl p-8 border border-[#2A2A45] w-full max-w-md">
-            <h2 className="text-xl font-semibold text-white mb-6">Nueva transacción</h2>
-            <form onSubmit={handleCreate} className="space-y-4">
-              <div className="flex bg-[#252540] rounded-xl overflow-hidden">
-                {(['expense', 'income'] as const).map(t => (
-                  <button key={t} type="button" onClick={() => setForm(f => ({ ...f, type: t, category_id: '' }))}
-                    className={`flex-1 py-2.5 text-sm font-medium transition-colors ${form.type === t ? (t === 'income' ? 'bg-[#00D4AA] text-white' : 'bg-[#FF6B6B] text-white') : 'text-[#8888AA]'}`}>
-                    {t === 'income' ? 'Ingreso' : 'Gasto'}
-                  </button>
-                ))}
+      {/* Modal Nueva Transacción con shadcn Dialog */}
+      <Dialog open={showForm} onOpenChange={setShowForm}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle>Nueva operación</DialogTitle>
+            <DialogDescription>Registrá un nuevo movimiento de ingreso o gasto.</DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleCreate} className="space-y-4 pt-2">
+            {/* Selector de Tipo */}
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant={form.type === 'expense' ? 'destructive' : 'outline'}
+                onClick={() => setForm((f) => ({ ...f, type: 'expense', category_id: '' }))}
+                className="w-full"
+              >
+                Débito / Gasto
+              </Button>
+              <Button
+                type="button"
+                variant={form.type === 'income' ? 'default' : 'outline'}
+                onClick={() => setForm((f) => ({ ...f, type: 'income', category_id: '' }))}
+                className={`w-full ${form.type === 'income' ? 'bg-emerald-700 hover:bg-emerald-800' : ''}`}
+              >
+                Acreditación / Ingreso
+              </Button>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Monto ($ ARS)</label>
+              <Input
+                type="number"
+                step="any"
+                value={form.amount}
+                onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+                placeholder="0.00"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Concepto o Descripción</label>
+              <Input
+                value={form.description}
+                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                placeholder="Ej: Pago de servicios, Sueldo, Supermercado"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Fecha de Operación</label>
+                <Input
+                  type="date"
+                  value={form.date}
+                  onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
+                  required
+                />
               </div>
-
-              {[
-                { label: 'Monto', type: 'number', value: form.amount, key: 'amount', placeholder: '0' },
-                { label: 'Descripción', type: 'text', value: form.description, key: 'description', placeholder: 'Ej: Almuerzo' },
-                { label: 'Fecha', type: 'date', value: form.date, key: 'date', placeholder: '' },
-              ].map(({ label, type, value, key, placeholder }) => (
-                <div key={key}>
-                  <label className="block text-sm text-[#8888AA] mb-1">{label}</label>
-                  <input type={type} value={value} placeholder={placeholder} required={key === 'amount'}
-                    onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-                    className="w-full bg-[#252540] border border-[#2A2A45] rounded-xl px-4 py-3 text-white placeholder-[#55556A] focus:outline-none focus:border-[#7B68EE]" />
-                </div>
-              ))}
 
               <div>
-                <label className="block text-sm text-[#8888AA] mb-1">Cuenta</label>
-                <select title="Cuenta" value={form.account_id} onChange={e => setForm(f => ({ ...f, account_id: e.target.value }))} required
-                  className="w-full bg-[#252540] border border-[#2A2A45] rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#7B68EE]">
-                  {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Cuenta de Cargo</label>
+                <select
+                  title="Seleccionar cuenta"
+                  value={form.account_id}
+                  onChange={(e) => setForm((f) => ({ ...f, account_id: e.target.value }))}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent shadow-xs"
+                >
+                  {accounts.map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.name}
+                    </option>
+                  ))}
                 </select>
               </div>
+            </div>
 
-              <div>
-                <label className="block text-sm text-[#8888AA] mb-1">Categoría</label>
-                <select title="Categoría" value={form.category_id} onChange={e => setForm(f => ({ ...f, category_id: e.target.value }))}
-                  className="w-full bg-[#252540] border border-[#2A2A45] rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#7B68EE]">
-                  <option value="">Sin categoría</option>
-                  {filteredCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Categoría Contable</label>
+              <select
+                title="Seleccionar categoría"
+                value={form.category_id}
+                onChange={(e) => setForm((f) => ({ ...f, category_id: e.target.value }))}
+                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent shadow-xs"
+              >
+                <option value="">Sin categoría asignada</option>
+                {filteredCats.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-              <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowForm(false)}
-                  className="flex-1 py-3 rounded-xl border border-[#2A2A45] text-[#8888AA] hover:text-white hover:border-[#7B68EE] transition-colors text-sm font-medium">
-                  Cancelar
-                </button>
-                <button type="submit"
-                  className="flex-1 py-3 rounded-xl bg-[#7B68EE] hover:bg-[#9B8FFF] text-white font-medium text-sm transition-colors">
-                  Guardar
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+              <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit">Confirmar operación</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

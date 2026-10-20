@@ -3,6 +3,10 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { Landmark } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -29,71 +33,99 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0D0D1A]">
-      <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="text-center mb-10">
-          <h1 className="text-4xl font-bold text-white mb-2">
-            <span className="text-[#7B68EE]">Gast</span>app
+    <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC] p-4">
+      <div className="w-full max-w-md space-y-6">
+        {/* Brand Header */}
+        <div className="text-center">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-[#1E40AF] text-white shadow-md mb-4">
+            <Landmark className="w-7 h-7" />
+          </div>
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight">
+            <span className="text-[#1E40AF]">Gast</span>app
           </h1>
-          <p className="text-[#8888AA] text-sm">Tus finanzas, bajo control</p>
+          <p className="text-slate-500 text-sm mt-1 font-medium">Portal de Gestión Financiera</p>
         </div>
 
         {/* Card */}
-        <div className="bg-[#1A1A2E] rounded-2xl p-8 border border-[#2A2A45]">
-          <h2 className="text-xl font-semibold text-white mb-6">
-            {isRegister ? 'Crear cuenta' : 'Iniciar sesión'}
-          </h2>
+        <Card className="border-slate-200 shadow-xl bg-white p-2">
+          <CardHeader className="space-y-1">
+            <CardTitle className="text-xl font-bold text-slate-900">
+              {isRegister ? 'Crear nueva cuenta' : 'Ingreso a Banca Personal'}
+            </CardTitle>
+            <CardDescription className="text-slate-500 text-xs">
+              {isRegister
+                ? 'Completá tus credenciales para darte de alta en la plataforma'
+                : 'Ingresá tu correo electrónico y clave para acceder'}
+            </CardDescription>
+          </CardHeader>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm text-[#8888AA] mb-1">Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="tu@email.com"
-                required
-                className="w-full bg-[#252540] border border-[#2A2A45] rounded-xl px-4 py-3 text-white placeholder-[#55556A] focus:outline-none focus:border-[#7B68EE] transition-colors"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm text-[#8888AA] mb-1">Contraseña</label>
-              <input
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                minLength={6}
-                className="w-full bg-[#252540] border border-[#2A2A45] rounded-xl px-4 py-3 text-white placeholder-[#55556A] focus:outline-none focus:border-[#7B68EE] transition-colors"
-              />
-            </div>
-
+          <CardContent>
             {error && (
-              <p className="text-[#FF6B6B] text-sm bg-[#FF6B6B]/10 px-4 py-3 rounded-xl">{error}</p>
+              <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded-lg mb-4 font-medium">
+                {error}
+              </div>
             )}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-[#7B68EE] hover:bg-[#9B8FFF] disabled:opacity-50 text-white font-semibold py-3 rounded-xl transition-colors"
-            >
-              {loading ? 'Cargando...' : isRegister ? 'Crear cuenta' : 'Entrar'}
-            </button>
-          </form>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Correo electrónico
+                </label>
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="tu@email.com"
+                  required
+                />
+              </div>
 
-          <p className="text-center text-[#8888AA] text-sm mt-6">
-            {isRegister ? '¿Ya tenés cuenta?' : '¿No tenés cuenta?'}{' '}
-            <button
-              onClick={() => { setIsRegister(!isRegister); setError(''); }}
-              className="text-[#7B68EE] hover:text-[#9B8FFF] font-medium"
-            >
-              {isRegister ? 'Iniciá sesión' : 'Registrate'}
-            </button>
-          </p>
-        </div>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700">Contraseña</label>
+                  {!isRegister && (
+                    <button
+                      type="button"
+                      onClick={() => alert('La funcionalidad de recuperación por correo se habilitará en la próxima actualización.')}
+                      className="text-xs text-[#1E40AF] hover:underline font-semibold cursor-pointer"
+                    >
+                      ¿Olvidaste tu contraseña?
+                    </button>
+                  )}
+                </div>
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  minLength={6}
+                />
+              </div>
+
+              <Button type="submit" disabled={loading} className="w-full mt-2">
+                {loading ? 'Procesando...' : isRegister ? 'Registrarme' : 'Ingresar'}
+              </Button>
+            </form>
+
+            <div className="mt-6 pt-4 border-t border-slate-100 text-center">
+              <button
+                type="button"
+                onClick={() => { setIsRegister(!isRegister); setError(''); }}
+                className="text-xs text-slate-600 hover:text-[#1E40AF] transition-colors font-semibold cursor-pointer"
+              >
+                {isRegister
+                  ? '¿Ya tenés una cuenta registrada? Iniciar sesión'
+                  : '¿Primera vez en Gastapp? Crear una cuenta'}
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Footer info */}
+        <p className="text-center text-xs text-slate-400">
+          Conexión cifrada y protegida por Supabase Auth (TLS 1.3)
+        </p>
       </div>
     </div>
   );

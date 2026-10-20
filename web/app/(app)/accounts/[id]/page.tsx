@@ -15,10 +15,10 @@ type Tab = 'income' | 'expense' | 'card' | 'investments';
 const PAGE_SIZE = 10;
 
 const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
-  { key: 'income',      label: 'Ingresos',   icon: <TrendingUp size={15} /> },
-  { key: 'expense',     label: 'Gastos',      icon: <TrendingDown size={15} /> },
-  { key: 'card',        label: 'Tarjeta',     icon: <CreditCardIcon size={15} /> },
-  { key: 'investments', label: 'Inversiones', icon: <Landmark size={15} /> },
+  { key: 'income',      label: 'Ingresos',   icon: <TrendingUp size={16} /> },
+  { key: 'expense',     label: 'Gastos',      icon: <TrendingDown size={16} /> },
+  { key: 'card',        label: 'Tarjeta',     icon: <CreditCardIcon size={16} /> },
+  { key: 'investments', label: 'Inversiones', icon: <Landmark size={16} /> },
 ];
 
 const MONTHS_FULL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -72,11 +72,10 @@ function DateRangePicker({ value, onChange }: { value: DateRange; onChange: (r: 
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth());
   const [calView, setCalView]   = useState<CalView>('days');
-  const [pending, setPending]   = useState<string | null>(null); // first click waiting for second
+  const [pending, setPending]   = useState<string | null>(null);
   const [hover, setHover]       = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
-  // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
@@ -112,7 +111,7 @@ function DateRangePicker({ value, onChange }: { value: DateRange; onChange: (r: 
   function getDaysInMonth(y: number, m: number) { return new Date(y, m + 1, 0).getDate(); }
   function getFirstWeekday(y: number, m: number) {
     const d = new Date(y, m, 1).getDay();
-    return d === 0 ? 6 : d - 1; // Monday-first
+    return d === 0 ? 6 : d - 1;
   }
 
   const daysInMonth = getDaysInMonth(viewYear, viewMonth);
@@ -137,15 +136,14 @@ function DateRangePicker({ value, onChange }: { value: DateRange; onChange: (r: 
     const isToday = iso === todayIso;
 
     if (isStart || isEnd)
-      return 'bg-[#7B68EE] text-white font-bold rounded-lg';
+      return 'bg-blue-600 text-white font-bold rounded-lg shadow-xs';
     if (inRange)
-      return 'bg-[#7B68EE]/20 text-white rounded-lg';
+      return 'bg-blue-50 text-blue-700 rounded-lg';
     if (isToday)
-      return 'text-[#9B8FFF] font-semibold hover:bg-[#252540] rounded-lg';
-    return 'text-[#8888AA] hover:bg-[#252540] hover:text-white rounded-lg';
+      return 'text-blue-600 font-bold hover:bg-slate-100 rounded-lg';
+    return 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 rounded-lg';
   }
 
-  // Trigger label
   let label = 'Seleccionar fechas';
   if (value) {
     label = value.from === value.to
@@ -154,22 +152,20 @@ function DateRangePicker({ value, onChange }: { value: DateRange; onChange: (r: 
   }
   if (pending) label = `Desde ${fmtDate(pending)}…`;
 
-  // Years range: 10 years centered around current
   const years = Array.from({ length: 10 }, (_, i) => now.getFullYear() - 5 + i);
 
   return (
     <div className="relative" ref={ref}>
-      {/* Trigger button */}
       <button
         type="button"
         onClick={() => { setOpen(o => !o); setCalView('days'); }}
-        className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm border transition-colors ${
+        className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm border font-medium transition-colors shadow-xs ${
           value
-            ? 'bg-[#7B68EE]/10 border-[#7B68EE] text-white'
-            : 'bg-[#252540] border-[#2A2A45] text-[#8888AA] hover:text-white'
+            ? 'bg-blue-50 border-blue-200 text-blue-700'
+            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900'
         }`}
       >
-        <Calendar size={14} />
+        <Calendar size={14} className={value ? 'text-blue-600' : 'text-slate-400'} />
         <span>{label}</span>
         {value && (
           <span
@@ -178,49 +174,44 @@ function DateRangePicker({ value, onChange }: { value: DateRange; onChange: (r: 
             tabIndex={0}
             onClick={e => { e.stopPropagation(); onChange(null); setPending(null); }}
             onKeyDown={e => e.key === 'Enter' && (e.stopPropagation(), onChange(null), setPending(null))}
-            className="ml-1 text-[#8888AA] hover:text-white cursor-pointer"
+            className="ml-1 text-slate-400 hover:text-slate-700 cursor-pointer"
           >
             <X size={12} />
           </span>
         )}
       </button>
 
-      {/* Dropdown panel */}
       {open && (
-        <div className="absolute top-full mt-2 left-0 z-50 bg-[#1A1A2E] border border-[#2A2A45] rounded-2xl p-4 shadow-2xl w-72">
-
-          {/* ── Days view ── */}
+        <div className="absolute top-full mt-2 left-0 z-50 bg-white border border-slate-200 rounded-2xl p-4 shadow-xl w-72">
           {calView === 'days' && (
             <>
               <div className="flex items-center justify-between mb-3">
                 <button type="button" aria-label="Mes anterior" onClick={prevMonth}
-                  className="p-1.5 rounded-lg hover:bg-[#252540] text-[#8888AA] hover:text-white transition-colors">
-                  <ChevronLeft size={15} />
+                  className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors">
+                  <ChevronLeft size={16} />
                 </button>
                 <div className="flex gap-1">
                   <button type="button" onClick={() => setCalView('months')}
-                    className="text-white font-semibold text-sm hover:text-[#9B8FFF] transition-colors px-1">
+                    className="text-slate-900 font-semibold text-sm hover:text-blue-600 transition-colors px-1">
                     {MONTHS_FULL[viewMonth]}
                   </button>
                   <button type="button" onClick={() => setCalView('years')}
-                    className="text-white font-semibold text-sm hover:text-[#9B8FFF] transition-colors px-1">
+                    className="text-slate-900 font-semibold text-sm hover:text-blue-600 transition-colors px-1">
                     {viewYear}
                   </button>
                 </div>
                 <button type="button" aria-label="Mes siguiente" onClick={nextMonth}
-                  className="p-1.5 rounded-lg hover:bg-[#252540] text-[#8888AA] hover:text-white transition-colors">
-                  <ChevronRight size={15} />
+                  className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors">
+                  <ChevronRight size={16} />
                 </button>
               </div>
 
-              {/* Weekday headers */}
               <div className="grid grid-cols-7 mb-1">
                 {DAYS_ES.map(d => (
-                  <div key={d} className="text-center text-[#55556A] text-xs py-1 font-medium">{d}</div>
+                  <div key={d} className="text-center text-slate-400 text-xs py-1 font-semibold">{d}</div>
                 ))}
               </div>
 
-              {/* Day cells */}
               <div className="grid grid-cols-7 gap-y-0.5">
                 {cells.map((iso, i) =>
                   iso === '' ? (
@@ -241,38 +232,37 @@ function DateRangePicker({ value, onChange }: { value: DateRange; onChange: (r: 
               </div>
 
               {pending && (
-                <p className="text-[#8888AA] text-xs text-center mt-3">
+                <p className="text-slate-500 text-xs text-center mt-3 font-medium">
                   Hacé clic en otro día para definir el rango
                 </p>
               )}
             </>
           )}
 
-          {/* ── Months view ── */}
           {calView === 'months' && (
             <>
               <div className="flex items-center justify-between mb-3">
                 <button type="button" aria-label="Año anterior" onClick={() => setViewYear(y => y - 1)}
-                  className="p-1.5 rounded-lg hover:bg-[#252540] text-[#8888AA] hover:text-white transition-colors">
-                  <ChevronLeft size={15} />
+                  className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors">
+                  <ChevronLeft size={16} />
                 </button>
                 <button type="button" onClick={() => setCalView('years')}
-                  className="text-white font-semibold text-sm hover:text-[#9B8FFF] transition-colors">
+                  className="text-slate-900 font-semibold text-sm hover:text-blue-600 transition-colors">
                   {viewYear}
                 </button>
                 <button type="button" aria-label="Año siguiente" onClick={() => setViewYear(y => y + 1)}
-                  className="p-1.5 rounded-lg hover:bg-[#252540] text-[#8888AA] hover:text-white transition-colors">
-                  <ChevronRight size={15} />
+                  className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors">
+                  <ChevronRight size={16} />
                 </button>
               </div>
               <div className="grid grid-cols-3 gap-2">
                 {MONTHS_FULL.map((_, i) => (
                   <button key={i} type="button"
                     onClick={() => { setViewMonth(i); setCalView('days'); }}
-                    className={`text-xs py-2 rounded-xl transition-colors ${
+                    className={`text-xs py-2 rounded-xl font-medium transition-colors ${
                       i === viewMonth && viewYear === now.getFullYear()
-                        ? 'bg-[#7B68EE] text-white font-bold'
-                        : 'bg-[#252540] text-[#8888AA] hover:text-white'
+                        ? 'bg-blue-600 text-white font-bold shadow-xs'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                     }`}
                   >
                     {MONTHS_SHORT[i]}
@@ -282,16 +272,15 @@ function DateRangePicker({ value, onChange }: { value: DateRange; onChange: (r: 
             </>
           )}
 
-          {/* ── Years view ── */}
           {calView === 'years' && (
             <>
-              <p className="text-[#8888AA] text-xs text-center mb-3 font-medium uppercase tracking-wide">Año</p>
+              <p className="text-slate-400 text-xs text-center mb-3 font-semibold uppercase tracking-wide">Seleccionar Año</p>
               <div className="grid grid-cols-3 gap-2">
                 {years.map(y => (
                   <button key={y} type="button"
                     onClick={() => { setViewYear(y); setCalView('months'); }}
-                    className={`text-xs py-2 rounded-xl transition-colors ${
-                      y === viewYear ? 'bg-[#7B68EE] text-white font-bold' : 'bg-[#252540] text-[#8888AA] hover:text-white'
+                    className={`text-xs py-2 rounded-xl font-medium transition-colors ${
+                      y === viewYear ? 'bg-blue-600 text-white font-bold shadow-xs' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                     }`}
                   >
                     {y}
@@ -301,15 +290,14 @@ function DateRangePicker({ value, onChange }: { value: DateRange; onChange: (r: 
             </>
           )}
 
-          {/* Footer with selected range */}
           {value && calView === 'days' && (
-            <div className="mt-3 pt-3 border-t border-[#2A2A45] flex items-center justify-between">
-              <span className="text-[#8888AA] text-xs">
+            <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
+              <span className="text-slate-500 text-xs font-medium">
                 {value.from === value.to ? fmtDate(value.from) : `${fmtDate(value.from)} → ${fmtDate(value.to)}`}
               </span>
               <button type="button" onClick={() => { onChange(null); setPending(null); }}
-                className="flex items-center gap-1 text-xs text-[#8888AA] hover:text-white transition-colors">
-                <X size={11} /> Limpiar
+                className="flex items-center gap-1 text-xs text-slate-500 hover:text-rose-600 font-medium transition-colors">
+                <X size={12} /> Limpiar
               </button>
             </div>
           )}
@@ -335,12 +323,12 @@ function CategoryDropdown({
   if (categories.length === 0) return null;
   return (
     <div className="flex items-center gap-2">
-      <span className="text-[#8888AA] text-xs font-medium whitespace-nowrap">Categoría</span>
+      <span className="text-slate-500 text-xs font-semibold whitespace-nowrap">Categoría:</span>
       <select
         title="Categoría"
         value={selected}
         onChange={e => onSelect(e.target.value)}
-        className="bg-[#252540] border border-[#2A2A45] rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-[#7B68EE] min-w-[160px]"
+        className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 font-medium focus:outline-none focus:border-blue-600 min-w-[160px] shadow-xs"
       >
         <option value="">Todas las categorías</option>
         {categories.map(cat => (
@@ -370,7 +358,7 @@ function YearMonthFilter({
   const months = uniqueMonths(items, year);
   if (years.length === 0) return null;
 
-  const selectCls = 'bg-[#252540] border border-[#2A2A45] rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-[#7B68EE]';
+  const selectCls = 'bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 font-medium focus:outline-none focus:border-blue-600 shadow-xs';
 
   return (
     <>
@@ -442,7 +430,7 @@ function InlineCategoryPicker({
         ref={btnRef}
         type="button"
         onClick={handleToggle}
-        className="text-xs bg-[#252540] hover:bg-[#2A2A45] text-[#8888AA] hover:text-white px-2 py-1 rounded-lg transition-colors"
+        className="text-xs bg-slate-100 hover:bg-slate-200/80 text-slate-700 font-medium px-2.5 py-1 rounded-lg border border-slate-200/60 transition-colors"
       >
         {current ? (
           <span className="flex items-center gap-1.5">
@@ -455,19 +443,19 @@ function InlineCategoryPicker({
       </button>
 
       {open && (
-        <div className={`absolute ${dropPos} left-0 z-50 bg-[#1A1A2E] border border-[#2A2A45] rounded-xl shadow-xl w-52 py-1 max-h-56 overflow-y-auto`}>
+        <div className={`absolute ${dropPos} left-0 z-50 bg-white border border-slate-200 rounded-xl shadow-xl w-52 py-1 max-h-56 overflow-y-auto`}>
           {current && (
             <button type="button" onClick={() => { onAssign(null); setOpen(false); }}
-              className="w-full text-left px-3 py-2 text-xs text-[#FF6B6B] hover:bg-[#252540] transition-colors flex items-center gap-2">
-              <X size={11} /> Quitar categoría
+              className="w-full text-left px-3 py-2 text-xs text-rose-600 hover:bg-rose-50 transition-colors flex items-center gap-2 font-medium">
+              <X size={12} /> Quitar categoría
             </button>
           )}
           {categories.map(cat => (
-            <div key={cat.id} className="group flex items-center hover:bg-[#252540] transition-colors">
+            <div key={cat.id} className="group flex items-center hover:bg-slate-50 transition-colors">
               <button type="button"
                 onClick={() => { onAssign(cat); setOpen(false); }}
                 className={`flex-1 text-left px-3 py-2 text-xs flex items-center gap-2 ${
-                  current?.id === cat.id ? 'text-white font-medium' : 'text-[#8888AA]'
+                  current?.id === cat.id ? 'text-blue-600 font-semibold' : 'text-slate-700'
                 }`}>
                 <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
                 {cat.name}
@@ -476,15 +464,15 @@ function InlineCategoryPicker({
                 <button type="button"
                   title="Ocultar categoría"
                   onClick={e => { e.stopPropagation(); onHide(cat.id); setOpen(false); }}
-                  className="opacity-0 group-hover:opacity-100 pr-3 py-2 text-[#55556A] hover:text-[#FF6B6B] transition-all">
-                  <X size={11} />
+                  className="opacity-0 group-hover:opacity-100 pr-3 py-2 text-slate-400 hover:text-rose-600 transition-all">
+                  <X size={12} />
                 </button>
               )}
             </div>
           ))}
-          <div className="border-t border-[#2A2A45] mt-1 pt-1">
+          <div className="border-t border-slate-100 mt-1 pt-1">
             <button type="button" onClick={() => { setOpen(false); onCreateNew(); }}
-              className="w-full text-left px-3 py-2 text-xs text-[#7B68EE] hover:bg-[#252540] transition-colors">
+              className="w-full text-left px-3 py-2 text-xs text-blue-600 hover:bg-blue-50 font-medium transition-colors">
               + Nueva categoría
             </button>
           </div>
@@ -496,7 +484,7 @@ function InlineCategoryPicker({
 
 // ─── CreateCategoryModal ──────────────────────────────────────────────────────
 
-const PRESET_COLORS = ['#7B68EE','#00D4AA','#FF6B6B','#FFB347','#4ECDC4','#A8E6CF','#FF8B94','#9B8FFF'];
+const PRESET_COLORS = ['#1E40AF','#10B981','#F59E0B','#EF4444','#6366F1','#06B6D4','#8B5CF6','#EC4899'];
 
 function CreateCategoryModal({ onCreated, onClose }: {
   onCreated: (cat: CategoryOption) => void;
@@ -527,35 +515,35 @@ function CreateCategoryModal({ onCreated, onClose }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-[#1A1A2E] border border-[#2A2A45] rounded-2xl p-6 w-full max-w-sm shadow-2xl mx-4">
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="text-white font-semibold text-lg">Nueva categoría</h3>
-          <button type="button" aria-label="Cerrar" onClick={onClose} className="text-[#8888AA] hover:text-white">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs">
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 w-full max-w-sm shadow-2xl mx-4">
+        <div className="flex items-center justify-between mb-5 pb-3 border-b border-slate-100">
+          <h3 className="text-slate-900 font-semibold text-lg">Nueva categoría</h3>
+          <button type="button" aria-label="Cerrar" onClick={onClose} className="text-slate-400 hover:text-slate-700">
             <X size={18} />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-[#8888AA] text-xs mb-1.5">Nombre</label>
+            <label className="block text-slate-700 text-xs font-semibold mb-1.5">Nombre</label>
             <input
               type="text"
               value={name}
               onChange={e => setName(e.target.value)}
               placeholder="Ej: Supermercado"
               autoFocus
-              className="w-full bg-[#252540] border border-[#2A2A45] rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-[#7B68EE] placeholder:text-[#55556A]"
+              className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-slate-900 text-sm focus:outline-none focus:border-blue-600 placeholder:text-slate-400 shadow-xs"
             />
           </div>
 
           <div>
-            <label className="block text-[#8888AA] text-xs mb-1.5">Tipo</label>
+            <label className="block text-slate-700 text-xs font-semibold mb-1.5">Tipo</label>
             <div className="flex gap-2">
               {(['expense', 'income'] as const).map(t => (
                 <button key={t} type="button" onClick={() => setType(t)}
-                  className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors ${
-                    type === t ? 'bg-[#7B68EE] text-white' : 'bg-[#252540] text-[#8888AA] hover:text-white'
+                  className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors ${
+                    type === t ? 'bg-blue-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}>
                   {t === 'expense' ? 'Gasto' : 'Ingreso'}
                 </button>
@@ -564,20 +552,20 @@ function CreateCategoryModal({ onCreated, onClose }: {
           </div>
 
           <div>
-            <label className="block text-[#8888AA] text-xs mb-1.5">Color</label>
+            <label className="block text-slate-700 text-xs font-semibold mb-1.5">Color</label>
             <div className="flex gap-2 flex-wrap">
               {PRESET_COLORS.map(c => (
                 <button key={c} type="button" aria-label={`Color ${c}`} onClick={() => setColor(c)}
-                  className={`w-7 h-7 rounded-full transition-transform ${color === c ? 'scale-125 ring-2 ring-white/40' : 'hover:scale-110'}`}
+                  className={`w-7 h-7 rounded-full transition-transform ${color === c ? 'scale-125 ring-2 ring-blue-600 ring-offset-2' : 'hover:scale-110'}`}
                   style={{ backgroundColor: c }} />
               ))}
             </div>
           </div>
 
-          {error && <p className="text-[#FF6B6B] text-xs">{error}</p>}
+          {error && <p className="text-rose-600 text-xs font-medium">{error}</p>}
 
           <button type="submit" disabled={saving || !name.trim()}
-            className="w-full bg-[#7B68EE] hover:bg-[#9B8FFF] disabled:opacity-50 text-white py-2.5 rounded-xl text-sm font-medium transition-colors">
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-xs">
             {saving ? 'Guardando...' : 'Crear categoría'}
           </button>
         </form>
@@ -597,10 +585,10 @@ function SyncButton({ state, onClick }: { state: SyncState; onClick: () => void 
       type="button"
       onClick={onClick}
       disabled={isLoading}
-      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors border shadow-xs ${
         isLoading
-          ? 'bg-[#252540] text-[#55556A] cursor-not-allowed'
-          : 'bg-[#7B68EE]/20 text-[#9B8FFF] hover:bg-[#7B68EE]/30'
+          ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+          : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
       }`}
     >
       <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
@@ -661,8 +649,8 @@ export default function AccountDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-[#8888AA]">Cargando...</div>
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent"></div>
       </div>
     );
   }
@@ -670,42 +658,42 @@ export default function AccountDetailPage() {
   if (!account) {
     return (
       <div className="p-8">
-        <p className="text-[#FF6B6B]">Cuenta no encontrada.</p>
+        <p className="text-rose-600 font-semibold">Cuenta no encontrada.</p>
       </div>
     );
   }
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">
         <button type="button" aria-label="Volver" onClick={() => router.back()}
-          className="p-2 rounded-xl hover:bg-[#252540] text-[#8888AA] hover:text-white transition-colors">
-          <ArrowLeft size={20} />
+          className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-800 transition-colors shadow-xs">
+          <ArrowLeft size={18} />
         </button>
         <div>
-          <h1 className="text-2xl font-bold text-white">{account.name}</h1>
-          <p className="text-[#8888AA] text-sm mt-0.5">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">{account.name}</h1>
+          <p className="text-slate-500 text-sm mt-0.5">
             {account.provider && `${account.provider} · `}
-            Saldo: <span className="text-white font-semibold">{fmt(Number(account.balance))}</span>
+            Saldo disponible: <span className="text-slate-900 font-bold">{fmt(Number(account.balance))}</span>
           </p>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-[#2A2A45] pb-0">
+      <div className="flex gap-2 border-b border-slate-200 pb-0">
         {TABS.map(t => (
           <button
             key={t.key}
             type="button"
             onClick={() => setTab(t.key)}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition-colors -mb-px ${
               tab === t.key
-                ? 'border-[#7B68EE] text-white'
-                : 'border-transparent text-[#8888AA] hover:text-white'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <span className={tab === t.key ? 'text-[#7B68EE]' : ''}>{t.icon}</span>
+            <span>{t.icon}</span>
             {t.label}
           </button>
         ))}
@@ -737,7 +725,7 @@ function IncomeTab({ transactions }: { transactions: Transaction[] }) {
         supabase.from('user_hidden_categories').select('category_id').eq('user_id', user.id),
       ]);
       const hiddenIds = new Set((hidden ?? []).map((h: { category_id: string }) => h.category_id));
-      setAllCats((cats ?? []).filter(c => !hiddenIds.has(c.id)).map(c => ({ id: c.id, name: c.name, color: c.color ?? '#55556A' })));
+      setAllCats((cats ?? []).filter(c => !hiddenIds.has(c.id)).map(c => ({ id: c.id, name: c.name, color: c.color ?? '#64748B' })));
     });
   }, []);
 
@@ -765,7 +753,7 @@ function IncomeTab({ transactions }: { transactions: Transaction[] }) {
         <DateRangePicker value={range} onChange={setRange} />
         <CategoryDropdown categories={filterCats} selected={catFilter} onSelect={setCatFilter} />
       </FilterBar>
-      <SummaryCard amount={total} label="Total ingresos" color="text-[#00D4AA]" bg="bg-[#00D4AA]/10" icon={<TrendingUp size={20} />} />
+      <SummaryCard amount={total} label="Total Ingresos Acreditados" color="text-emerald-600" bg="bg-emerald-50" icon={<TrendingUp size={22} />} />
       {byCategory.length > 0 && <CategoryBreakdown items={byCategory} total={total} />}
       <TransactionTable
         transactions={filtered}
@@ -795,7 +783,7 @@ function ExpenseTab({ transactions }: { transactions: Transaction[] }) {
         supabase.from('user_hidden_categories').select('category_id').eq('user_id', user.id),
       ]);
       const hiddenIds = new Set((hidden ?? []).map((h: { category_id: string }) => h.category_id));
-      setAllCats((cats ?? []).filter(c => !hiddenIds.has(c.id)).map(c => ({ id: c.id, name: c.name, color: c.color ?? '#55556A' })));
+      setAllCats((cats ?? []).filter(c => !hiddenIds.has(c.id)).map(c => ({ id: c.id, name: c.name, color: c.color ?? '#64748B' })));
     });
   }, []);
 
@@ -823,7 +811,7 @@ function ExpenseTab({ transactions }: { transactions: Transaction[] }) {
         <DateRangePicker value={range} onChange={setRange} />
         <CategoryDropdown categories={filterCats} selected={catFilter} onSelect={setCatFilter} />
       </FilterBar>
-      <SummaryCard amount={total} label="Total gastos" color="text-[#FF6B6B]" bg="bg-[#FF6B6B]/10" icon={<TrendingDown size={20} />} />
+      <SummaryCard amount={total} label="Total Gastos Debitado" color="text-rose-600" bg="bg-rose-50" icon={<TrendingDown size={22} />} />
       {byCategory.length > 0 && <CategoryBreakdown items={byCategory} total={total} />}
       <TransactionTable
         transactions={filtered}
@@ -859,7 +847,7 @@ function CardTab({ card, movements, accountId }: { card: CreditCard | null; move
         supabase.from('user_hidden_categories').select('category_id').eq('user_id', user.id),
       ]);
       const hiddenIds = new Set((hidden ?? []).map((h: { category_id: string }) => h.category_id));
-      setAllCats((cats ?? []).filter(c => !hiddenIds.has(c.id)).map(c => ({ id: c.id, name: c.name, color: c.color ?? '#55556A' })));
+      setAllCats((cats ?? []).filter(c => !hiddenIds.has(c.id)).map(c => ({ id: c.id, name: c.name, color: c.color ?? '#64748B' })));
     }
     loadCats();
   }, []);
@@ -878,7 +866,7 @@ function CardTab({ card, movements, accountId }: { card: CreditCard | null; move
 
   function getCategory(m: CardMovement): CategoryOption | null {
     if (catOverrides[m.id] !== undefined) return catOverrides[m.id];
-    if (m.category) return { id: m.category.id, name: m.category.name, color: m.category.color ?? '#55556A' };
+    if (m.category) return { id: m.category.id, name: m.category.name, color: m.category.color ?? '#64748B' };
     return null;
   }
 
@@ -904,11 +892,11 @@ function CardTab({ card, movements, accountId }: { card: CreditCard | null; move
 
   if (!card) {
     return (
-      <div className="bg-[#1A1A2E] rounded-2xl border border-[#2A2A45] p-16 text-center space-y-4">
-        <CreditCardIcon size={40} className="text-[#2A2A45] mx-auto" />
-        <p className="text-[#8888AA]">No hay tarjeta de crédito asociada a esta cuenta</p>
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-16 text-center space-y-4">
+        <CreditCardIcon size={44} className="text-slate-300 mx-auto" />
+        <p className="text-slate-500 font-medium">No hay tarjeta de crédito asociada a esta cuenta</p>
         {syncMsg && (
-          <p className={`text-sm ${syncState === 'error' ? 'text-[#FF6B6B]' : 'text-[#00D4AA]'}`}>{syncMsg}</p>
+          <p className={`text-sm font-semibold ${syncState === 'error' ? 'text-rose-600' : 'text-emerald-600'}`}>{syncMsg}</p>
         )}
         <div className="flex justify-center">
           <SyncButton state={syncState} onClick={handleSync} />
@@ -929,24 +917,26 @@ function CardTab({ card, movements, accountId }: { card: CreditCard | null; move
   return (
     <div className="space-y-6">
       {/* Resumen tarjeta */}
-      <div className="bg-[#1A1A2E] rounded-2xl border border-[#2A2A45] p-6">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6">
         <div className="flex items-start justify-between mb-6">
           <div>
-            <p className="text-white font-bold text-lg">{card.brand} {card.product}</p>
-            <p className="text-[#8888AA] text-sm mt-0.5">•••• {card.last_digits}</p>
-            {card.holder && <p className="text-[#8888AA] text-xs mt-1">{card.holder}</p>}
+            <p className="text-slate-900 font-bold text-lg">{card.brand} {card.product}</p>
+            <p className="text-slate-500 text-sm mt-0.5 font-medium">•••• {card.last_digits}</p>
+            {card.holder && <p className="text-slate-400 text-xs mt-1">{card.holder}</p>}
           </div>
           <div className="flex items-center gap-3">
             <SyncButton state={syncState} onClick={handleSync} />
-            <CreditCardIcon size={32} className="text-[#7B68EE]" />
+            <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-100">
+              <CreditCardIcon size={24} />
+            </div>
           </div>
         </div>
 
         {syncMsg && (
-          <div className={`flex items-center gap-2 text-sm px-4 py-2.5 rounded-xl mb-4 ${
-            syncState === 'success' ? 'bg-[#00D4AA]/10 text-[#00D4AA]' : 'bg-[#FF6B6B]/10 text-[#FF6B6B]'
+          <div className={`flex items-center gap-2 text-sm px-4 py-2.5 rounded-xl mb-4 font-medium ${
+            syncState === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
           }`}>
-            {syncState === 'success' ? <CheckCircle size={15} /> : <AlertCircle size={15} />}
+            {syncState === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
             {syncMsg}
           </div>
         )}
@@ -958,19 +948,19 @@ function CardTab({ card, movements, accountId }: { card: CreditCard | null; move
             { label: 'Pago mínimo',    value: fmt(Number(card.min_payment)) },
             { label: 'Disponible ARS', value: fmt(Number(card.available_ars)) },
           ].map(({ label, value }) => (
-            <div key={label} className="bg-[#252540] rounded-xl p-4">
-              <p className="text-[#8888AA] text-xs mb-1">{label}</p>
-              <p className="text-white font-semibold text-sm">{value}</p>
+            <div key={label} className="bg-slate-50 border border-slate-100 rounded-xl p-4">
+              <p className="text-slate-500 text-xs font-semibold mb-1">{label}</p>
+              <p className="text-slate-900 font-bold text-base">{value}</p>
             </div>
           ))}
         </div>
 
-        <div className="flex gap-6 text-sm border-t border-[#2A2A45] pt-4">
+        <div className="flex gap-6 text-sm border-t border-slate-100 pt-4">
           {card.closing_date && (
-            <p className="text-[#8888AA]">Cierre: <span className="text-white">{card.closing_date}</span></p>
+            <p className="text-slate-500 font-medium">Cierre: <span className="text-slate-900 font-semibold">{card.closing_date}</span></p>
           )}
           {card.due_date && (
-            <p className="text-[#8888AA]">Vencimiento: <span className="text-white">{fmtDate(card.due_date)}</span></p>
+            <p className="text-slate-500 font-medium">Vencimiento: <span className="text-slate-900 font-semibold">{fmtDate(card.due_date)}</span></p>
           )}
         </div>
       </div>
@@ -992,39 +982,39 @@ function CardTab({ card, movements, accountId }: { card: CreditCard | null; move
 
       {/* Totales del período filtrado */}
       <div className="grid grid-cols-2 gap-4">
-        <div className="bg-[#1A1A2E] rounded-2xl border border-[#2A2A45] p-5 text-center">
-          <p className="text-[#8888AA] text-xs mb-2">ARS período filtrado</p>
-          <p className="text-white text-xl font-bold">{fmt(totalARS)}</p>
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 text-center">
+          <p className="text-slate-500 text-xs font-semibold mb-1 uppercase tracking-wide">ARS período filtrado</p>
+          <p className="text-slate-900 text-2xl font-bold">{fmt(totalARS)}</p>
         </div>
-        <div className="bg-[#1A1A2E] rounded-2xl border border-[#2A2A45] p-5 text-center">
-          <p className="text-[#8888AA] text-xs mb-2">USD período filtrado</p>
-          <p className="text-white text-xl font-bold">USD {totalUSD.toFixed(2)}</p>
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 text-center">
+          <p className="text-slate-500 text-xs font-semibold mb-1 uppercase tracking-wide">USD período filtrado</p>
+          <p className="text-slate-900 text-2xl font-bold">USD {totalUSD.toFixed(2)}</p>
         </div>
       </div>
 
       {/* Lista de consumos */}
-      <div className="bg-[#1A1A2E] rounded-2xl border border-[#2A2A45] overflow-hidden">
-        <div className="px-6 py-4 border-b border-[#2A2A45]">
-          <h3 className="text-white font-semibold">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+          <h3 className="text-slate-900 font-semibold text-sm">
             Consumos ({filtered.length}{filtered.length !== movements.length && ` de ${movements.length}`})
           </h3>
         </div>
         {filtered.length === 0 ? (
-          <p className="text-[#8888AA] text-sm text-center py-12">Sin consumos para el período seleccionado</p>
+          <p className="text-slate-400 text-sm text-center py-16 font-medium">Sin consumos para el período seleccionado</p>
         ) : (
           <>
             <table className="w-full">
               <thead>
-                <tr className="border-b border-[#2A2A45]">
+                <tr className="border-b border-slate-100 bg-slate-50/80">
                   {['Comercio', 'Categoría', 'Fecha', 'Cuotas', 'Monto'].map(h => (
-                    <th key={h} className="text-left px-6 py-3 text-[#8888AA] text-xs font-medium uppercase tracking-wide">{h}</th>
+                    <th key={h} className="text-left px-6 py-3 text-slate-500 text-xs font-semibold uppercase tracking-wider">{h}</th>
                   ))}
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-slate-100">
                 {pagedMvs.map(m => (
-                  <tr key={m.id} className="border-b border-[#2A2A45] last:border-0 hover:bg-[#252540] transition-colors">
-                    <td className="px-6 py-3 text-white text-sm font-medium">{m.merchant}</td>
+                  <tr key={m.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="px-6 py-3 text-slate-900 text-sm font-semibold">{m.merchant}</td>
                     <td className="px-6 py-3">
                       <InlineCategoryPicker
                         current={getCategory(m)}
@@ -1034,15 +1024,15 @@ function CardTab({ card, movements, accountId }: { card: CreditCard | null; move
                         onHide={handleHide}
                       />
                     </td>
-                    <td className="px-6 py-3 text-[#8888AA] text-sm whitespace-nowrap">{fmtDate(m.date)}</td>
+                    <td className="px-6 py-3 text-slate-500 text-sm whitespace-nowrap font-medium">{fmtDate(m.date)}</td>
                     <td className="px-6 py-3">
                       {m.installment ? (
-                        <span className="text-xs bg-[#7B68EE]/20 text-[#9B8FFF] px-2 py-1 rounded-lg whitespace-nowrap">Cuota {m.installment}</span>
+                        <span className="text-xs bg-blue-50 text-blue-700 font-semibold px-2 py-0.5 rounded-md border border-blue-200/60 whitespace-nowrap">Cuota {m.installment}</span>
                       ) : (
-                        <span className="text-[#55556A] text-xs">—</span>
+                        <span className="text-slate-400 text-xs">—</span>
                       )}
                     </td>
-                    <td className="px-6 py-3 text-[#FF6B6B] text-sm font-semibold whitespace-nowrap">
+                    <td className="px-6 py-3 text-rose-600 text-sm font-bold whitespace-nowrap">
                       {m.currency === 'USD' ? `USD ${Number(m.amount).toFixed(2)}` : fmt(Number(m.amount))}
                     </td>
                   </tr>
@@ -1073,20 +1063,20 @@ function InvestmentsTab({ investments }: { investments: Investment[] }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4">
-        <div className="bg-[#1A1A2E] rounded-2xl border border-[#2A2A45] p-5 text-center">
-          <p className="text-[#8888AA] text-xs mb-2">Capital invertido</p>
-          <p className="text-white text-xl font-bold">{fmt(totalCapital)}</p>
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 text-center">
+          <p className="text-slate-500 text-xs font-semibold mb-1 uppercase tracking-wide">Capital invertido</p>
+          <p className="text-slate-900 text-2xl font-bold">{fmt(totalCapital)}</p>
         </div>
-        <div className="bg-[#1A1A2E] rounded-2xl border border-[#2A2A45] p-5 text-center">
-          <p className="text-[#8888AA] text-xs mb-2">Ganancia estimada</p>
-          <p className="text-[#00D4AA] text-xl font-bold">{fmt(totalGain)}</p>
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 text-center">
+          <p className="text-slate-500 text-xs font-semibold mb-1 uppercase tracking-wide">Rendimiento acumulado</p>
+          <p className="text-emerald-600 text-2xl font-bold">{fmt(totalGain)}</p>
         </div>
       </div>
 
       {investments.length === 0 ? (
-        <div className="bg-[#1A1A2E] rounded-2xl border border-[#2A2A45] p-16 text-center">
-          <Landmark size={40} className="text-[#2A2A45] mx-auto mb-4" />
-          <p className="text-[#8888AA]">Sin inversiones registradas</p>
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-16 text-center">
+          <Landmark size={44} className="text-slate-300 mx-auto mb-4" />
+          <p className="text-slate-500 font-medium">Sin colocaciones ni inversiones activas registradas</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -1095,29 +1085,31 @@ function InvestmentsTab({ investments }: { investments: Investment[] }) {
               ? Math.ceil((new Date(inv.maturity_date).getTime() - Date.now()) / 86400000)
               : null;
             return (
-              <div key={inv.id} className="bg-[#1A1A2E] rounded-2xl border border-[#2A2A45] p-6">
+              <div key={inv.id} className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 hover:border-slate-300 transition-colors">
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <p className="text-white font-semibold">{inv.name}</p>
+                    <p className="text-slate-900 font-bold text-base">{inv.name}</p>
                     {inv.tna != null && (
-                      <p className="text-[#8888AA] text-sm mt-1">TNA {inv.tna}% · {inv.term_days} días</p>
+                      <p className="text-slate-500 text-sm mt-1 font-medium">TNA {inv.tna}% · Plazo {inv.term_days} días</p>
                     )}
                   </div>
                   <div className="text-right">
-                    <p className="text-white font-bold text-lg">{fmt(Number(inv.initial_amount))}</p>
+                    <p className="text-slate-900 font-bold text-lg">{fmt(Number(inv.initial_amount))}</p>
                     {inv.gain_amount != null && (
-                      <p className="text-[#00D4AA] text-sm font-semibold mt-0.5">+{fmt(Number(inv.gain_amount))}</p>
+                      <p className="text-emerald-600 text-sm font-semibold mt-0.5">+{fmt(Number(inv.gain_amount))}</p>
                     )}
                   </div>
                 </div>
                 {inv.maturity_date && (
-                  <div className="flex items-center justify-between pt-4 border-t border-[#2A2A45]">
-                    <p className="text-[#8888AA] text-sm">Vence {fmtDate(inv.maturity_date)}</p>
+                  <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+                    <p className="text-slate-500 text-sm font-medium">Fecha de vencimiento: <span className="text-slate-800 font-semibold">{fmtDate(inv.maturity_date)}</span></p>
                     {daysLeft != null && (
-                      <span className={`text-xs font-bold px-3 py-1 rounded-full ${
-                        daysLeft <= 7 ? 'bg-[#FFB347]/20 text-[#FFB347]' : 'bg-[#7B68EE]/20 text-[#9B8FFF]'
+                      <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
+                        daysLeft <= 7
+                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : 'bg-blue-50 text-blue-700 border-blue-200'
                       }`}>
-                        {daysLeft > 0 ? `${daysLeft} días` : 'Vencido'}
+                        {daysLeft > 0 ? `${daysLeft} días restantes` : 'Vencido'}
                       </span>
                     )}
                   </div>
@@ -1135,7 +1127,7 @@ function InvestmentsTab({ investments }: { investments: Investment[] }) {
 
 function FilterBar({ children }: { children: React.ReactNode }) {
   return (
-    <div className="bg-[#1A1A2E] rounded-2xl border border-[#2A2A45] p-4">
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4">
       <div className="flex flex-wrap items-center gap-3">
         {children}
       </div>
@@ -1147,10 +1139,10 @@ function SummaryCard({ amount, label, color, bg, icon }: {
   amount: number; label: string; color: string; bg: string; icon: React.ReactNode;
 }) {
   return (
-    <div className="bg-[#1A1A2E] rounded-2xl border border-[#2A2A45] p-6 flex items-center gap-5">
-      <div className={`${bg} ${color} p-3 rounded-xl`}>{icon}</div>
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 flex items-center gap-5">
+      <div className={`${bg} ${color} p-3.5 rounded-xl border border-slate-100`}>{icon}</div>
       <div>
-        <p className="text-[#8888AA] text-sm">{label}</p>
+        <p className="text-slate-500 text-xs font-semibold uppercase tracking-wide">{label}</p>
         <p className={`text-2xl font-bold mt-1 ${color}`}>{fmt(amount)}</p>
       </div>
     </div>
@@ -1165,7 +1157,7 @@ function buildCategoryOptions(transactions: Transaction[]): CategoryOption[] {
         {
           id:    t.category?.id    ?? 'sin-categoria',
           name:  t.category?.name  ?? 'Sin categoría',
-          color: t.category?.color ?? '#55556A',
+          color: t.category?.color ?? '#64748B',
         },
       ]),
     ).values(),
@@ -1176,7 +1168,7 @@ function groupByCategory(transactions: Transaction[]) {
   const map: Record<string, { name: string; color: string; total: number }> = {};
   transactions.forEach(t => {
     const id = t.category?.id ?? 'sin-categoria';
-    if (!map[id]) map[id] = { name: t.category?.name ?? 'Sin categoría', color: t.category?.color ?? '#55556A', total: 0 };
+    if (!map[id]) map[id] = { name: t.category?.name ?? 'Sin categoría', color: t.category?.color ?? '#64748B', total: 0 };
     map[id].total += Number(t.amount);
   });
   return Object.values(map).sort((a, b) => b.total - a.total);
@@ -1184,20 +1176,20 @@ function groupByCategory(transactions: Transaction[]) {
 
 function CategoryBreakdown({ items, total }: { items: { name: string; color: string; total: number }[]; total: number }) {
   return (
-    <div className="bg-[#1A1A2E] rounded-2xl border border-[#2A2A45] p-6">
-      <h3 className="text-white font-semibold mb-4">Por categoría</h3>
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6">
+      <h3 className="text-slate-900 font-semibold mb-4 text-sm">Distribución por Rubro</h3>
       <div className="space-y-3">
         {items.map(item => {
           const pct = total > 0 ? (item.total / total) * 100 : 0;
           return (
             <div key={item.name} className="flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
-              <span className="text-[#8888AA] text-sm w-36 truncate">{item.name}</span>
-              <div className="flex-1 bg-[#252540] rounded-full h-2 overflow-hidden">
-                <div className="h-2 rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: item.color + '99' }} />
+              <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
+              <span className="text-slate-600 text-sm w-36 truncate font-medium">{item.name}</span>
+              <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200/50">
+                <div className="h-2 rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: item.color }} />
               </div>
-              <span className="text-white text-sm font-semibold w-28 text-right">{fmt(item.total)}</span>
-              <span className="text-[#8888AA] text-xs w-10 text-right">{pct.toFixed(0)}%</span>
+              <span className="text-slate-900 text-sm font-semibold w-28 text-right">{fmt(item.total)}</span>
+              <span className="text-slate-400 text-xs w-10 text-right font-medium">{pct.toFixed(0)}%</span>
             </div>
           );
         })}
@@ -1217,23 +1209,23 @@ function Paginator({ page, total, onPrev, onNext }: {
   const isLast  = page >= totalPages - 1;
 
   return (
-    <div className="flex items-center justify-between px-6 py-4 border-t border-[#2A2A45]">
+    <div className="flex items-center justify-between px-6 py-3 border-t border-slate-100 bg-slate-50/50">
       <button
         type="button"
         onClick={onPrev}
         disabled={isFirst}
-        className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-[#252540] text-[#8888AA] hover:text-white hover:bg-[#2A2A55] disabled:hover:bg-[#252540] disabled:hover:text-[#8888AA]"
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 shadow-xs"
       >
-        <ChevronLeft size={15} /> Anterior
+        <ChevronLeft size={14} /> Anterior
       </button>
-      <span className="text-[#8888AA] text-sm font-medium">{page + 1} / {totalPages}</span>
+      <span className="text-slate-500 text-xs font-semibold">Página {page + 1} de {totalPages}</span>
       <button
         type="button"
         onClick={onNext}
         disabled={isLast}
-        className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-[#252540] text-[#8888AA] hover:text-white hover:bg-[#2A2A55] disabled:hover:bg-[#252540] disabled:hover:text-[#8888AA]"
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 shadow-xs"
       >
-        Siguiente <ChevronRight size={15} />
+        Siguiente <ChevronRight size={14} />
       </button>
     </div>
   );
@@ -1249,7 +1241,7 @@ function TransactionTable({ transactions, type, categories, onCategoryCreated, o
   const [page, setPage]           = useState(0);
   const [overrides, setOverrides] = useState<Record<string, CategoryOption | null>>({});
   const [showCreate, setShowCreate] = useState(false);
-  const color = type === 'income' ? 'text-[#00D4AA]' : 'text-[#FF6B6B]';
+  const color = type === 'income' ? 'text-emerald-600' : 'text-rose-600';
   const sign  = type === 'income' ? '+' : '-';
 
   const totalRef = useRef(transactions.length);
@@ -1260,7 +1252,7 @@ function TransactionTable({ transactions, type, categories, onCategoryCreated, o
 
   function getCategory(t: Transaction): CategoryOption | null {
     if (overrides[t.id] !== undefined) return overrides[t.id];
-    if (t.category) return { id: t.category.id, name: t.category.name, color: t.category.color ?? '#55556A' };
+    if (t.category) return { id: t.category.id, name: t.category.name, color: t.category.color ?? '#64748B' };
     return null;
   }
 
@@ -1273,27 +1265,27 @@ function TransactionTable({ transactions, type, categories, onCategoryCreated, o
 
   return (
     <>
-      <div className="bg-[#1A1A2E] rounded-2xl border border-[#2A2A45] overflow-hidden">
-        <div className="px-6 py-4 border-b border-[#2A2A45]">
-          <h3 className="text-white font-semibold">Movimientos ({transactions.length})</h3>
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+          <h3 className="text-slate-900 font-semibold text-sm">Movimientos ({transactions.length})</h3>
         </div>
         {transactions.length === 0 ? (
-          <p className="text-[#8888AA] text-sm text-center py-12">Sin movimientos</p>
+          <p className="text-slate-400 text-sm text-center py-16 font-medium">Sin movimientos registrados</p>
         ) : (
           <>
             <table className="w-full">
               <thead>
-                <tr className="border-b border-[#2A2A45]">
+                <tr className="border-b border-slate-100 bg-slate-50/80">
                   {['Descripción', 'Categoría', 'Fecha', 'Monto'].map(h => (
-                    <th key={h} className="text-left px-6 py-3 text-[#8888AA] text-xs font-medium uppercase tracking-wide">{h}</th>
+                    <th key={h} className="text-left px-6 py-3 text-slate-500 text-xs font-semibold uppercase tracking-wider">{h}</th>
                   ))}
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-slate-100">
                 {paged.map(t => (
-                  <tr key={t.id} className="border-b border-[#2A2A45] last:border-0 hover:bg-[#252540] transition-colors">
-                    <td className="px-6 py-3 text-white text-sm">
-                      <span className="block max-w-xs" title={t.description || undefined}>{t.description || '—'}</span>
+                  <tr key={t.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="px-6 py-3 text-slate-900 text-sm font-semibold">
+                      <span className="block max-w-xs truncate" title={t.description || undefined}>{t.description || '—'}</span>
                     </td>
                     <td className="px-6 py-3">
                       <InlineCategoryPicker
@@ -1304,8 +1296,8 @@ function TransactionTable({ transactions, type, categories, onCategoryCreated, o
                         onHide={onHideCategory}
                       />
                     </td>
-                    <td className="px-6 py-3 text-[#8888AA] text-sm whitespace-nowrap">{fmtDate(t.date)}</td>
-                    <td className={`px-6 py-3 text-sm font-semibold whitespace-nowrap ${color}`}>
+                    <td className="px-6 py-3 text-slate-500 text-sm whitespace-nowrap font-medium">{fmtDate(t.date)}</td>
+                    <td className={`px-6 py-3 text-sm font-bold whitespace-nowrap ${color}`}>
                       {sign}{fmt(Number(t.amount))}
                     </td>
                   </tr>
