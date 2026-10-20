@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { spawn }                     from 'child_process';
 import { createServerClient }        from '@supabase/ssr';
 import { cookies }                   from 'next/headers';
-import { existsSync, readFileSync }  from 'fs';
+import { existsSync, readFileSync, statSync }  from 'fs';
 import path                          from 'path';
 
 // El scraper puede tardar 1-2 min
@@ -37,19 +37,10 @@ function runScraper(): Promise<string> {
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  const { account_id } = body as { account_id?: string };
+  const { account_id, import_only } = body as { account_id?: string; import_only?: boolean };
 
   if (!account_id) {
     return NextResponse.json({ error: 'account_id requerido' }, { status: 400 });
-  }
-
-  // Verificar que existan las credenciales antes de arrancar
-  const credsPath = path.join(GALICIA_DIR, 'credentials.json');
-  if (!existsSync(credsPath)) {
-    return NextResponse.json(
-      { error: 'No se encontró credentials.json en scripts/galicia/. Copiá credentials.example.json y completá tus datos.' },
-      { status: 400 },
-    );
   }
 
   // Auth: obtener usuario desde la sesión
@@ -70,12 +61,22 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
-  // Ejecutar el scraper
-  try {
-    await runScraper();
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: `Error en scraper: ${msg}` }, { status: 500 });
+  // Ejecutar el scraper (salvo que sea import_only)
+  if (!import_only) {
+    const credsPath = path.join(GALICIA_DIR, 'credentials.json');
+    if (!existsSync(credsPath)) {
+      return NextResponse.json(
+        { error: 'No se encontró credentials.json en scripts/galicia/. Copiá credentials.example.json y completá tus datos.' },
+        { status: 400 },
+      );
+    }
+
+    try {
+      await runScraper();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return NextResponse.json({ error: `Error en scraper: ${msg}` }, { status: 500 });
+    }
   }
 
   // Leer el output generado hoy
@@ -83,8 +84,11 @@ export async function POST(req: NextRequest) {
   const outputFile = path.join(GALICIA_DIR, `output-${today}.json`);
 
   if (!existsSync(outputFile)) {
-    return NextResponse.json({ error: `No se encontró output-${today}.json` }, { status: 500 });
+    return NextResponse.json({ error: `No se encontró output-${today}.json. Ejecutá el scraper primero.` }, { status: 500 });
   }
+
+  const fileStat = statSync(outputFile);
+  const syncTimestamp = fileStat.mtime.toISOString();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scraped: any = JSON.parse(readFileSync(outputFile, 'utf8'));
@@ -120,7 +124,7 @@ export async function POST(req: NextRequest) {
         min_payment:     summary.minPayment ?? 0,
         available_ars:   summary.availableARS ?? 0,
         available_usd:   summary.availableUSD ?? 0,
-        synced_at:       new Date().toISOString(),
+        synced_at:       syncTimestamp,
       },
       { onConflict: 'account_id,user_id' },
     )
@@ -132,6 +136,16 @@ export async function POST(req: NextRequest) {
       { error: `Error al guardar tarjeta: ${cardErr?.message ?? 'sin id'}` },
       { status: 500 },
     );
+  }
+
+  // Actualizar last_scraped_at en la cuenta si existe la columna
+  try {
+    await supabase
+      .from('accounts')
+      .update({ last_scraped_at: syncTimestamp })
+      .eq('id', account_id);
+  } catch {
+    // Si la columna aún no fue creada en accounts, se ignora silenciosamente
   }
 
   // Reemplazar movimientos con auto-categorización por merchant
@@ -176,5 +190,6 @@ export async function POST(req: NextRequest) {
     ok:             true,
     cardLastDigits: summary.lastDigits,
     movementsCount: movements.length,
+    syncedAt:       syncTimestamp,
   });
 }

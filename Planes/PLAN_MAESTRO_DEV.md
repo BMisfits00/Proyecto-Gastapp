@@ -88,6 +88,7 @@ Gastapp opera bajo un modelo de arquitectura desacoplada y reactiva en tres capa
 | 2026-10-20 | v3.1.0 | Web UI | Rediseño integral estilo Portal Bancario (shadcn/ui, azul marino/slate/blanco). | Dev Lead |
 | 2026-10-20 | v3.2.0 | Auth / Email | Integración de Resend, recuperación de contraseña y plantillas corporativas. | Dev Lead |
 | 2026-10-20 | v3.2.0 | DB Cron | Migración 008 con pg_cron para liquidación diaria automática de rendimientos. | Dev Lead |
+| 2026-10-20 | v3.3.0 | Scraper | Soporte de importación y visualización de fecha/hora de último scrapeo en tarjetas y cuentas. | Dev Lead |
 
 ---
 

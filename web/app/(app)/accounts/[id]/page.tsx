@@ -31,6 +31,13 @@ const fmt = (n: number, currency = 'ARS') =>
 const fmtDate = (d: string) =>
   new Date(d + 'T00:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' });
 
+const fmtDateTime = (d: string) => {
+  const date = new Date(d);
+  const dateStr = date.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const timeStr = date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+  return `${dateStr} ${timeStr} hs`;
+};
+
 const toIso = (d: Date) => d.toISOString().split('T')[0];
 const todayIso = toIso(new Date());
 
@@ -672,7 +679,15 @@ export default function AccountDetailPage() {
           <ArrowLeft size={18} />
         </button>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">{account.name}</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">{account.name}</h1>
+            {(account.last_scraped_at || card?.synced_at) && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                <RefreshCw size={11} className="shrink-0" />
+                Último scrapeo: {fmtDateTime(account.last_scraped_at || card?.synced_at!)}
+              </span>
+            )}
+          </div>
           <p className="text-slate-500 text-sm mt-0.5">
             {account.provider && `${account.provider} · `}
             Saldo disponible: <span className="text-slate-900 font-bold">{fmt(Number(account.balance))}</span>
@@ -923,6 +938,12 @@ function CardTab({ card, movements, accountId }: { card: CreditCard | null; move
             <p className="text-slate-900 font-bold text-lg">{card.brand} {card.product}</p>
             <p className="text-slate-500 text-sm mt-0.5 font-medium">•••• {card.last_digits}</p>
             {card.holder && <p className="text-slate-400 text-xs mt-1">{card.holder}</p>}
+            {card.synced_at && (
+              <p className="text-slate-500 text-xs mt-1.5 flex items-center gap-1 font-medium">
+                <RefreshCw size={11} className="text-blue-600" />
+                <span>Último scrapeo: <strong className="text-slate-700 font-semibold">{fmtDateTime(card.synced_at)}</strong></span>
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-3">
             <SyncButton state={syncState} onClick={handleSync} />

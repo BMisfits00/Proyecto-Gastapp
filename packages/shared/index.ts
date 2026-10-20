@@ -21,6 +21,8 @@ export interface Account {
   is_active: boolean;
   has_daily_yield: boolean;
   daily_yield_rate: number;
+  last_scraped_at?: string | null;
+  credit_cards?: { synced_at: string }[];
   created_at: string;
   updated_at: string;
 }

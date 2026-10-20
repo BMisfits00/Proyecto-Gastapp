@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Account, AccountType } from '@/lib/types';
 import Link from 'next/link';
-import { Plus, Wallet, Building2, Banknote, ChevronRight, TrendingUp } from 'lucide-react';
+import { Plus, Wallet, Building2, Banknote, ChevronRight, TrendingUp, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -48,11 +48,11 @@ export default function AccountsPage() {
       if (!user) return;
       const { data } = await supabase
         .from('accounts')
-        .select('*')
+        .select('*, credit_cards(synced_at)')
         .eq('user_id', user.id)
         .eq('is_active', true)
         .order('created_at');
-      setAccounts(data || []);
+      setAccounts((data || []) as unknown as Account[]);
       setLoading(false);
     }
     load();
@@ -63,11 +63,11 @@ export default function AccountsPage() {
     if (!user) return;
     const { data } = await supabase
       .from('accounts')
-      .select('*')
+      .select('*, credit_cards(synced_at)')
       .eq('user_id', user.id)
       .eq('is_active', true)
       .order('created_at');
-    setAccounts(data || []);
+    setAccounts((data || []) as unknown as Account[]);
   }
 
   async function handleCreate(e: React.FormEvent) {
@@ -104,6 +104,21 @@ export default function AccountsPage() {
       currency: 'ARS',
       maximumFractionDigits: 0,
     }).format(n);
+
+  const getSyncTime = (acc: Account) => {
+    if (acc.last_scraped_at) return acc.last_scraped_at;
+    if (acc.credit_cards && acc.credit_cards.length > 0) {
+      return acc.credit_cards[0].synced_at;
+    }
+    return null;
+  };
+
+  const fmtDateTime = (iso: string) => {
+    const d = new Date(iso);
+    const dateStr = d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const timeStr = d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+    return `${dateStr} ${timeStr} hs`;
+  };
 
   const totalBalance = accounts.reduce((s, a) => s + Number(a.balance), 0);
 
@@ -172,6 +187,12 @@ export default function AccountsPage() {
                     <div className="flex items-center gap-1.5 text-emerald-700 text-xs mt-2 font-semibold bg-emerald-50 px-2 py-1 rounded-md w-fit">
                       <TrendingUp className="w-3.5 h-3.5" />
                       <span>Rendimiento diario: {(acc.daily_yield_rate * 100).toFixed(2)}%</span>
+                    </div>
+                  )}
+                  {getSyncTime(acc) && (
+                    <div className="flex items-center gap-1.5 text-slate-500 text-xs mt-2 font-medium bg-slate-50 border border-slate-200/60 px-2.5 py-1 rounded-md w-fit">
+                      <RefreshCw className="w-3 h-3 text-blue-600 shrink-0" />
+                      <span>Último scrapeo: <strong className="text-slate-800 font-semibold">{fmtDateTime(getSyncTime(acc)!)}</strong></span>
                     </div>
                   )}
                 </div>
