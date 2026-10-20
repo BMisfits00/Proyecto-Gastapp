@@ -350,11 +350,17 @@ export async function POST(req: NextRequest) {
             .from('accounts')
             .update({
               balance: latestBal,
-              last_scraped_at: syncTimestamp,
             })
             .eq('id', account_id);
           if (balErr) {
             console.error('Error al actualizar saldo activo de la cuenta:', balErr);
+          } else {
+            // Intento opcional de guardar last_scraped_at si la columna existiera
+            try {
+              await supabase.from('accounts').update({ last_scraped_at: syncTimestamp }).eq('id', account_id);
+            } catch {
+              // Silencioso si la columna no existe
+            }
           }
         }
       } catch (err) {
