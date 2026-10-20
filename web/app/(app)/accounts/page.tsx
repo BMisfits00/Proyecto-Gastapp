@@ -1,10 +1,19 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { Account, AccountType } from '@/lib/types';
-import Link from 'next/link';
-import { Plus, Wallet, Building2, Banknote, ChevronRight, TrendingUp, RefreshCw } from 'lucide-react';
+import {
+  Plus,
+  Wallet,
+  Building2,
+  Banknote,
+  ChevronRight,
+  TrendingUp,
+  RefreshCw,
+  Pencil,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -29,33 +38,180 @@ const accountTypeIcons: Record<AccountType, React.ReactNode> = {
   cash: <Banknote className="w-5 h-5" />,
 };
 
+interface EntityGroup {
+  name: string;
+  type: AccountType;
+  accounts: Account[];
+  totalARS: number;
+  totalUSD: number;
+  lastScrapedAt: string | null;
+}
+
+function groupAccountsByEntity(accounts: Account[]): EntityGroup[] {
+  const map = new Map<string, EntityGroup>();
+
+  for (const acc of accounts) {
+    let prov = acc.provider?.trim();
+    if (!prov) {
+      const lower = (acc.name || '').toLowerCase();
+      if (lower.includes('galicia')) prov = 'Banco Galicia';
+      else if (lower.includes('mercado pago') || lower.includes('mercadopago')) prov = 'Mercado Pago';
+      else if (lower.includes('santander')) prov = 'Banco Santander';
+      else if (lower.includes('bbva')) prov = 'Banco BBVA';
+      else if (lower.includes('macro')) prov = 'Banco Macro';
+      else if (lower.includes('brubank')) prov = 'Brubank';
+      else if (lower.includes('uala') || lower.includes('ualá')) prov = 'Ualá';
+      else if (acc.type === 'cash') prov = 'Efectivo';
+      else prov = 'Otras Cuentas';
+    }
+
+    if (!map.has(prov)) {
+      map.set(prov, {
+        name: prov,
+        type: acc.type,
+        accounts: [],
+        totalARS: 0,
+        totalUSD: 0,
+        lastScrapedAt: null,
+      });
+    }
+
+    const group = map.get(prov)!;
+    group.accounts.push(acc);
+    const bal = Number(acc.balance) || 0;
+    if (acc.currency === 'USD') {
+      group.totalUSD += bal;
+    } else {
+      group.totalARS += bal;
+    }
+
+    const syncTime = acc.last_scraped_at || (acc.credit_cards && acc.credit_cards[0]?.synced_at);
+    if (syncTime) {
+      if (!group.lastScrapedAt || syncTime > group.lastScrapedAt) {
+        group.lastScrapedAt = syncTime;
+      }
+    }
+  }
+
+  // Ordenar grupos: Galicia primero, luego alfabéticamente
+  return Array.from(map.values()).sort((a, b) => {
+    if (a.name.toLowerCase().includes('galicia')) return -1;
+    if (b.name.toLowerCase().includes('galicia')) return 1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
 export default function AccountsPage() {
+  const router = useRouter();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({
     name: '',
     type: 'bank' as AccountType,
     provider: '',
+    currency: 'ARS',
     balance: '',
     has_daily_yield: false,
     daily_yield_rate: '',
   });
 
-  useEffect(() => {
-    async function load() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data } = await supabase
-        .from('accounts')
-        .select('*, credit_cards(synced_at)')
-        .eq('user_id', user.id)
-        .eq('is_active', true)
-        .order('created_at');
-      setAccounts((data || []) as unknown as Account[]);
-      setLoading(false);
+  async function loadAndProvision() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data } = await supabase
+      .from('accounts')
+      .select('*, credit_cards(synced_at)')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .order('created_at');
+
+    let list = (data || []) as unknown as Account[];
+
+    // Auto-aprovisionar sub-cuentas de Banco Galicia si existe la entidad pero faltan cajas
+    const galiciaAccounts = list.filter(a =>
+      a.provider?.toLowerCase().includes('galicia') ||
+      a.name.toLowerCase().includes('galicia')
+    );
+
+    if (galiciaAccounts.length > 0) {
+      let needsRefresh = false;
+      const primary = galiciaAccounts[0];
+
+      // Renombrar prolijamente la principal a "Caja de Ahorro en Pesos" si tenía un nombre genérico
+      if (
+        primary.name.toLowerCase() === 'banco galicia' ||
+        primary.name.toLowerCase() === 'caja de ahorro' ||
+        primary.name.toLowerCase() === 'caja de ahorro galicia'
+      ) {
+        await supabase.from('accounts').update({
+          name: 'Caja de Ahorro en Pesos',
+          provider: 'Banco Galicia',
+          currency: 'ARS',
+        }).eq('id', primary.id);
+        primary.name = 'Caja de Ahorro en Pesos';
+        primary.provider = 'Banco Galicia';
+        primary.currency = 'ARS';
+      }
+
+      // Verificar si existe la Caja de Ahorro en Dólares
+      const hasUSD = galiciaAccounts.some(a =>
+        a.currency === 'USD' ||
+        a.name.toLowerCase().includes('dólares') ||
+        a.name.toLowerCase().includes('dolares')
+      );
+
+      if (!hasUSD) {
+        await supabase.from('accounts').insert({
+          user_id: user.id,
+          name: 'Caja de Ahorro en Dólares',
+          type: 'bank',
+          provider: 'Banco Galicia',
+          balance: 0,
+          currency: 'USD',
+          is_active: true,
+        });
+        needsRefresh = true;
+      }
+
+      // Verificar si existe Cuenta Corriente en Pesos
+      const hasCC = galiciaAccounts.some(a =>
+        a.name.toLowerCase().includes('cuenta corriente') ||
+        a.name.toLowerCase().includes('cta cte')
+      );
+
+      if (!hasCC) {
+        await supabase.from('accounts').insert({
+          user_id: user.id,
+          name: 'Cuenta Corriente en Pesos',
+          type: 'bank',
+          provider: 'Banco Galicia',
+          balance: 0,
+          currency: 'ARS',
+          is_active: true,
+        });
+        needsRefresh = true;
+      }
+
+      if (needsRefresh) {
+        const { data: updated } = await supabase
+          .from('accounts')
+          .select('*, credit_cards(synced_at)')
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+          .order('created_at');
+        list = (updated || []) as unknown as Account[];
+      }
     }
-    load();
+
+    setAccounts(list);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadAndProvision();
   }, []);
 
   async function refresh() {
@@ -81,9 +237,10 @@ export default function AccountsPage() {
       type: form.type,
       provider: form.provider.trim() || null,
       balance: parseFloat(form.balance) || 0,
-      currency: 'ARS',
+      currency: form.currency || 'ARS',
       has_daily_yield: form.has_daily_yield,
       daily_yield_rate: form.has_daily_yield ? parseFloat(form.daily_yield_rate) / 100 : 0,
+      is_active: true,
     });
 
     setShowForm(false);
@@ -91,11 +248,18 @@ export default function AccountsPage() {
       name: '',
       type: 'bank',
       provider: '',
+      currency: 'ARS',
       balance: '',
       has_daily_yield: false,
       daily_yield_rate: '',
     });
     refresh();
+  }
+
+  function handleAccountBalanceUpdated(accountId: string, newBalance: number) {
+    setAccounts(prev =>
+      prev.map(a => (a.id === accountId ? { ...a, balance: newBalance } : a))
+    );
   }
 
   const fmt = (n: number) =>
@@ -105,6 +269,12 @@ export default function AccountsPage() {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(n);
+
+  const fmtUSD = (n: number) =>
+    `USD ${new Intl.NumberFormat('es-AR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(n)}`;
 
   const getSyncTime = (acc: Account) => {
     if (acc.last_scraped_at) return acc.last_scraped_at;
@@ -121,28 +291,55 @@ export default function AccountsPage() {
     return `${dateStr} ${timeStr}`;
   };
 
-  const totalBalance = accounts.reduce((s, a) => s + Number(a.balance), 0);
+  const totalBalanceARS = accounts
+    .filter(a => a.currency !== 'USD')
+    .reduce((s, a) => s + Number(a.balance), 0);
+
+  const totalBalanceUSD = accounts
+    .filter(a => a.currency === 'USD')
+    .reduce((s, a) => s + Number(a.balance), 0);
+
+  const entityGroups = groupAccountsByEntity(accounts);
 
   return (
-    <div className="p-8 space-y-6 max-w-7xl mx-auto">
+    <div className="p-8 space-y-8 max-w-7xl mx-auto">
       {/* Header Corporativo Bancario */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Cuentas y Productos</h1>
-          <p className="text-slate-500 text-sm mt-1">
-            Saldo total consolidado:{' '}
-            <span className="text-[#1E40AF] font-bold text-base">{fmt(totalBalance)}</span>
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Cuentas y Entidades</h1>
+          <p className="text-slate-500 text-sm mt-1 flex items-center gap-2 flex-wrap">
+            <span>Saldo total consolidado:</span>
+            <span className="text-[#1E40AF] font-bold text-base">{fmt(totalBalanceARS)}</span>
+            {totalBalanceUSD > 0 && (
+              <span className="text-emerald-600 font-bold text-base">
+                · {fmtUSD(totalBalanceUSD)}
+              </span>
+            )}
           </p>
         </div>
-        <Button onClick={() => setShowForm(true)} className="gap-2">
-          <Plus className="w-4 h-4" /> Nueva cuenta
+        <Button
+          onClick={() => {
+            setForm({
+              name: '',
+              type: 'bank',
+              provider: '',
+              currency: 'ARS',
+              balance: '',
+              has_daily_yield: false,
+              daily_yield_rate: '',
+            });
+            setShowForm(true);
+          }}
+          className="gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-xs"
+        >
+          <Plus className="w-4 h-4" /> Nueva cuenta o caja
         </Button>
       </div>
 
       {loading ? (
         <div className="py-24 text-center">
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#1E40AF] mb-4" />
-          <p className="text-slate-500 text-sm">Cargando cuentas...</p>
+          <p className="text-slate-500 text-sm">Cargando entidades y cuentas...</p>
         </div>
       ) : accounts.length === 0 ? (
         <Card className="p-16 text-center border-dashed border-slate-300 bg-white">
@@ -154,104 +351,239 @@ export default function AccountsPage() {
           </Button>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {accounts.map((acc) => (
-            <Link key={acc.id} href={`/accounts/${acc.id}`} className="group block">
-              <Card className="p-6 transition-all duration-200 hover:border-blue-500 hover:shadow-md cursor-pointer h-full flex flex-col justify-between border-slate-200 bg-white">
-                <div>
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="bg-blue-50 text-[#1E40AF] p-3 rounded-xl border border-blue-100">
-                      {accountTypeIcons[acc.type]}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="font-semibold text-slate-700">
-                        {accountTypeLabels[acc.type]}
-                      </Badge>
-                      <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-[#1E40AF] transition-colors" />
-                    </div>
+        <div className="space-y-8">
+          {entityGroups.map((group) => (
+            <div
+              key={group.name}
+              className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl shadow-xs overflow-hidden transition-all duration-200"
+            >
+              {/* Header de la Card Maestra de Entidad */}
+              <div className="p-6 sm:p-7 bg-linear-to-r from-slate-50/90 via-white to-slate-50/50 border-b border-slate-200/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-start sm:items-center gap-4">
+                  <div className="p-3.5 bg-blue-50 text-blue-700 border border-blue-100 rounded-2xl shadow-2xs shrink-0">
+                    {accountTypeIcons[group.type]}
                   </div>
-                  <h3 className="text-slate-900 font-bold text-lg group-hover:text-[#1E40AF] transition-colors">
-                    {acc.name}
-                  </h3>
-                  {acc.provider && (
-                    <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider mt-0.5">
-                      {acc.provider}
-                    </p>
-                  )}
+                  <div>
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                        {group.name}
+                      </h2>
+                      <Badge variant="secondary" className="font-semibold text-slate-700 text-xs bg-slate-100">
+                        {accountTypeLabels[group.type]}
+                      </Badge>
+                      <Badge variant="outline" className="text-slate-500 text-xs font-semibold">
+                        {group.accounts.length} {group.accounts.length === 1 ? 'caja' : 'cajas / cuentas'}
+                      </Badge>
+                    </div>
+                    {group.lastScrapedAt && (
+                      <p className="text-xs text-emerald-600 font-medium flex items-center gap-1.5 mt-1">
+                        <RefreshCw className="w-3 h-3 text-emerald-500 shrink-0" />
+                        <span>Última sincronización: <strong className="text-emerald-700 font-semibold">{fmtDateTime(group.lastScrapedAt)}</strong></span>
+                      </p>
+                    )}
+                  </div>
                 </div>
 
-                <div className="mt-6 pt-4 border-t border-slate-100">
-                  <p className="text-2xl font-black text-slate-900 tracking-tight">
-                    {fmt(Number(acc.balance))}
-                  </p>
-                  {acc.has_daily_yield && (
-                    <div className="flex items-center gap-1.5 text-emerald-700 text-xs mt-2 font-semibold bg-emerald-50 px-2 py-1 rounded-md w-fit">
-                      <TrendingUp className="w-3.5 h-3.5" />
-                      <span>Rendimiento diario: {(acc.daily_yield_rate * 100).toFixed(2)}%</span>
+                <div className="flex items-center gap-4 self-end md:self-auto flex-wrap">
+                  <div className="text-right">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                      Saldo Activo Consolidado
+                    </span>
+                    <div className="flex items-baseline gap-2 justify-end">
+                      <span className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                        {fmt(group.totalARS)}
+                      </span>
+                      {group.totalUSD > 0 && (
+                        <span className="text-sm font-bold text-emerald-600">
+                          · {fmtUSD(group.totalUSD)}
+                        </span>
+                      )}
                     </div>
-                  )}
-                  {getSyncTime(acc) && (
-                    <div className="flex items-center gap-1.5 text-emerald-600 text-xs mt-2 font-medium">
-                      <RefreshCw className="w-3 h-3 text-emerald-500 shrink-0" />
-                      <span>Último scrapeo: <strong className="text-emerald-700 font-semibold">{fmtDateTime(getSyncTime(acc)!)}</strong></span>
-                    </div>
-                  )}
+                  </div>
+
+                  <Button
+                    onClick={() => {
+                      setForm({
+                        name: '',
+                        type: group.type,
+                        provider: group.name,
+                        currency: 'ARS',
+                        balance: '',
+                        has_daily_yield: false,
+                        daily_yield_rate: '',
+                      });
+                      setShowForm(true);
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-xs font-semibold text-blue-700 border-blue-200 hover:bg-blue-50"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Agregar caja
+                  </Button>
                 </div>
-              </Card>
-            </Link>
+              </div>
+
+              {/* Sub-cards Grid de Cajas y Cuentas de la Entidad */}
+              <div className="p-5 sm:p-7 bg-slate-50/50">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {group.accounts.map((acc) => (
+                    <div
+                      key={acc.id}
+                      onClick={() => router.push(`/accounts/${acc.id}`)}
+                      className="group block bg-white border border-slate-200 rounded-2xl p-5 hover:border-blue-500 hover:shadow-md transition-all duration-200 cursor-pointer relative flex flex-col justify-between"
+                    >
+                      <div>
+                        {/* Cabecera de la Sub-card */}
+                        <div className="flex items-start justify-between gap-2 mb-3">
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant="outline"
+                              className={`font-bold text-xs uppercase px-2 py-0.5 ${
+                                acc.currency === 'USD'
+                                  ? 'border-emerald-300 text-emerald-700 bg-emerald-50'
+                                  : 'border-blue-200 text-blue-700 bg-blue-50'
+                              }`}
+                            >
+                              {acc.currency}
+                            </Badge>
+                            <span className="text-xs font-semibold text-slate-500">
+                              {acc.currency === 'USD' ? 'Dólares' : 'Pesos'}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            {/* Botón de ajuste rápido de saldo */}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingAccount(acc);
+                              }}
+                              title="Ajustar saldo activo"
+                              className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" />
+                          </div>
+                        </div>
+
+                        {/* Nombre de la Caja / Sub-cuenta */}
+                        <h3 className="text-slate-900 font-bold text-base sm:text-lg group-hover:text-blue-600 transition-colors">
+                          {acc.name}
+                        </h3>
+                      </div>
+
+                      {/* Saldo activo disponible de la caja */}
+                      <div className="mt-5 pt-4 border-t border-slate-100">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                          Saldo activo disponible
+                        </span>
+                        <p className="text-2xl font-black text-slate-900 tracking-tight mt-0.5">
+                          {acc.currency === 'USD' ? fmtUSD(Number(acc.balance)) : fmt(Number(acc.balance))}
+                        </p>
+
+                        {acc.has_daily_yield && (
+                          <div className="flex items-center gap-1.5 text-emerald-700 text-xs mt-2 font-semibold bg-emerald-50 px-2 py-1 rounded-md w-fit">
+                            <TrendingUp className="w-3.5 h-3.5" />
+                            <span>Rendimiento: {(acc.daily_yield_rate * 100).toFixed(2)}%</span>
+                          </div>
+                        )}
+
+                        {getSyncTime(acc) && (
+                          <div className="flex items-center gap-1.5 text-emerald-600 text-xs mt-2 font-medium">
+                            <RefreshCw className="w-3 h-3 text-emerald-500 shrink-0" />
+                            <span>Último scrapeo: <strong className="text-emerald-700 font-semibold">{fmtDateTime(getSyncTime(acc)!)}</strong></span>
+                          </div>
+                        )}
+
+                        <div className="mt-3 flex items-center justify-between text-xs font-semibold text-blue-600 group-hover:text-blue-700 pt-2 border-t border-slate-50">
+                          <span>Ver movimientos y detalle</span>
+                          <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           ))}
         </div>
       )}
 
-      {/* Modal Nueva Cuenta con shadcn Dialog */}
+      {/* Modal Ajustar Saldo Activo */}
+      {editingAccount && (
+        <AdjustBalanceModal
+          account={editingAccount}
+          onClose={() => setEditingAccount(null)}
+          onSave={(newBalance) => handleAccountBalanceUpdated(editingAccount.id, newBalance)}
+        />
+      )}
+
+      {/* Modal Nueva Cuenta / Caja */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>
             <DialogTitle>Nueva cuenta bancaria o billetera</DialogTitle>
             <DialogDescription>
-              Completá los datos de la cuenta para incorporarla a tu balance consolidado.
+              Completá los datos de la caja para incorporarla a tu balance y entidad consolidada.
             </DialogDescription>
           </DialogHeader>
 
           <form onSubmit={handleCreate} className="space-y-4 pt-2">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Nombre de la cuenta</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Nombre de la cuenta o caja</label>
               <Input
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Ej: Caja de Ahorro Galicia, Cuenta Sueldo"
+                placeholder="Ej: Caja de Ahorro en Pesos, Cuenta Corriente"
                 required
               />
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Tipo de cuenta</label>
-              <select
-                title="Tipo de cuenta"
-                value={form.type}
-                onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as AccountType }))}
-                className="w-full bg-white border border-slate-300 rounded-lg px-3.5 py-2.5 text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent shadow-xs"
-              >
-                <option value="bank">Banco</option>
-                <option value="virtual_wallet">Billetera virtual</option>
-                <option value="cash">Efectivo</option>
-              </select>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Tipo de entidad</label>
+                <select
+                  title="Tipo de cuenta"
+                  value={form.type}
+                  onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as AccountType }))}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
+                >
+                  <option value="bank">Banco</option>
+                  <option value="virtual_wallet">Billetera virtual</option>
+                  <option value="cash">Efectivo</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Moneda</label>
+                <select
+                  title="Moneda"
+                  value={form.currency}
+                  onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
+                >
+                  <option value="ARS">ARS ($ Pesos)</option>
+                  <option value="USD">USD ($ Dólares)</option>
+                </select>
+              </div>
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Entidad proveedora (opcional)
+                Entidad proveedora
               </label>
               <Input
                 value={form.provider}
                 onChange={(e) => setForm((f) => ({ ...f, provider: e.target.value }))}
-                placeholder="Ej: Banco Galicia, Santander, Mercado Pago"
+                placeholder="Ej: Banco Galicia, Mercado Pago, Santander"
               />
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Saldo inicial
+                Saldo activo inicial
               </label>
               <Input
                 type="number"
@@ -294,11 +626,98 @@ export default function AccountsPage() {
               <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
                 Cancelar
               </Button>
-              <Button type="submit">Crear cuenta</Button>
+              <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-semibold">
+                Crear cuenta
+              </Button>
             </div>
           </form>
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// ─── Componente Modal para Ajustar Saldo Activo ───────────────────────────────
+
+function AdjustBalanceModal({
+  account,
+  onClose,
+  onSave,
+}: {
+  account: Account;
+  onClose: () => void;
+  onSave: (newBalance: number) => void;
+}) {
+  const [balanceVal, setBalanceVal] = useState(account.balance.toString());
+  const [saving, setSaving] = useState(false);
+  const isUSD = account.currency === 'USD';
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const num = parseFloat(balanceVal);
+    if (isNaN(num)) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('accounts')
+        .update({ balance: num, updated_at: new Date().toISOString() })
+        .eq('id', account.id);
+      if (error) throw error;
+      onSave(num);
+      onClose();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Error al guardar el saldo');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="sm:max-w-[420px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-slate-900">
+            <Pencil className="w-5 h-5 text-blue-600" /> Ajustar saldo activo
+          </DialogTitle>
+          <DialogDescription>
+            Modificá el saldo disponible de <strong className="text-slate-800 font-semibold">{account.name}</strong> para reflejar con exactitud lo que le queda activo a esta caja.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              Saldo activo actual ({isUSD ? 'USD' : 'ARS'})
+            </label>
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
+                {isUSD ? 'USD' : '$'}
+              </span>
+              <Input
+                type="number"
+                step="any"
+                value={balanceVal}
+                onChange={(e) => setBalanceVal(e.target.value)}
+                className="pl-12 text-lg font-bold"
+                required
+                autoFocus
+              />
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1.5">
+              Este valor se actualizará de inmediato como saldo disponible activo de esta caja.
+            </p>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
+            <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={saving} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold">
+              {saving ? 'Guardando...' : 'Guardar saldo'}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

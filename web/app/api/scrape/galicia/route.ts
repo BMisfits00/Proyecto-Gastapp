@@ -342,17 +342,23 @@ export async function POST(req: NextRequest) {
     }
 
     // Actualizar balance de cuenta con el saldo del extracto bancario más reciente
-    if (accountMovements[0].balance !== undefined && accountMovements[0].balance !== null) {
+    if (accountMovements.length > 0 && accountMovements[0]?.balance !== undefined && accountMovements[0]?.balance !== null) {
       try {
-        await supabase
-          .from('accounts')
-          .update({
-            balance: Number(accountMovements[0].balance),
-            last_scraped_at: syncTimestamp,
-          })
-          .eq('id', account_id);
-      } catch {
-        // Silencioso
+        const latestBal = Number(accountMovements[0].balance);
+        if (!isNaN(latestBal)) {
+          const { error: balErr } = await supabase
+            .from('accounts')
+            .update({
+              balance: latestBal,
+              last_scraped_at: syncTimestamp,
+            })
+            .eq('id', account_id);
+          if (balErr) {
+            console.error('Error al actualizar saldo activo de la cuenta:', balErr);
+          }
+        }
+      } catch (err) {
+        console.error('Excepción al actualizar saldo de cuenta:', err);
       }
     }
   }

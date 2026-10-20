@@ -8,8 +8,17 @@ import {
   ArrowLeft, TrendingUp, TrendingDown, CreditCard as CreditCardIcon,
   Landmark, X, RefreshCw, CheckCircle, AlertCircle,
   ChevronLeft, ChevronRight, Calendar, Scale, Sparkles,
-  Info, Search,
+  Info, Search, Pencil,
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 import { ItemDetailModal } from './ItemDetailModal';
 import { normalizeText } from '@/lib/categorizer';
 import {
@@ -711,6 +720,7 @@ export default function AccountDetailPage() {
   const [syncMsg, setSyncMsg]         = useState('');
   const [autoCatLoading, setAutoCatLoading] = useState(false);
   const [autoCatMsg, setAutoCatMsg]         = useState('');
+  const [showAdjustModal, setShowAdjustModal] = useState(false);
 
   async function handleSync() {
     setSyncState('loading');
@@ -821,9 +831,19 @@ export default function AccountDetailPage() {
           </button>
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">{account.name}</h1>
-            <p className="text-slate-500 text-sm mt-0.5">
-              {account.provider && `${account.provider} · `}
-              Saldo disponible: <span className="text-slate-900 font-bold">{fmt(Number(account.balance))}</span>
+            <p className="text-slate-500 text-sm mt-0.5 flex items-center gap-1.5 flex-wrap">
+              <span>{account.provider && `${account.provider} · `}Saldo disponible:</span>
+              <span className="text-slate-900 font-bold">
+                {account.currency === 'USD' ? fmtUSD(Number(account.balance)) : fmt(Number(account.balance))}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowAdjustModal(true)}
+                title="Ajustar saldo activo disponible"
+                className="p-1 rounded-md text-slate-400 hover:text-blue-600 hover:bg-slate-100 transition-colors inline-flex items-center ml-0.5"
+              >
+                <Pencil size={13} />
+              </button>
             </p>
           </div>
         </div>
@@ -996,7 +1016,102 @@ export default function AccountDetailPage() {
         />
       )}
       {tab === 'investments' && <InvestmentsTab investments={investments} />}
+
+      {showAdjustModal && (
+        <AdjustBalanceModal
+          account={account}
+          onClose={() => setShowAdjustModal(false)}
+          onSave={(newBalance) => {
+            setAccount(prev => (prev ? { ...prev, balance: newBalance } : null));
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+// ─── Modal para Ajustar Saldo Activo ──────────────────────────────────────────
+
+function AdjustBalanceModal({
+  account,
+  onClose,
+  onSave,
+}: {
+  account: Account;
+  onClose: () => void;
+  onSave: (newBalance: number) => void;
+}) {
+  const [balanceVal, setBalanceVal] = useState(account.balance.toString());
+  const [saving, setSaving] = useState(false);
+  const isUSD = account.currency === 'USD';
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const num = parseFloat(balanceVal);
+    if (isNaN(num)) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('accounts')
+        .update({ balance: num, updated_at: new Date().toISOString() })
+        .eq('id', account.id);
+      if (error) throw error;
+      onSave(num);
+      onClose();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Error al guardar el saldo');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="sm:max-w-[420px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-slate-900">
+            <Pencil className="w-5 h-5 text-blue-600" /> Ajustar saldo activo
+          </DialogTitle>
+          <DialogDescription>
+            Modificá el saldo disponible de <strong className="text-slate-800 font-semibold">{account.name}</strong> para reflejar lo que le queda activo en tu banco.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              Saldo activo disponible ({isUSD ? 'USD' : 'ARS'})
+            </label>
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
+                {isUSD ? 'USD' : '$'}
+              </span>
+              <Input
+                type="number"
+                step="any"
+                value={balanceVal}
+                onChange={(e) => setBalanceVal(e.target.value)}
+                className="pl-12 text-lg font-bold"
+                required
+                autoFocus
+              />
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1.5">
+              Este valor se actualizará de inmediato como saldo disponible activo de esta caja.
+            </p>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
+            <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={saving} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold">
+              {saving ? 'Guardando...' : 'Guardar saldo'}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1200,7 +1315,7 @@ function BalanceTab({
             </div>
           </div>
 
-          <ResponsiveContainer width="100%" height={260}>
+          <ResponsiveContainer width="100%" height={260} minWidth={0}>
             <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
               <XAxis dataKey="mes" stroke="#94A3B8" tick={{ fill: '#64748B', fontSize: 12 }} />
