@@ -384,42 +384,52 @@ function YearMonthFilter({
 
   const selectCls = 'bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 font-medium focus:outline-none focus:border-blue-600 shadow-xs';
 
+  const hasPeriod = Boolean(year || month);
+
   function handlePrev() {
     onRangeChange?.(null);
     let y = year ? parseInt(year, 10) : (years[0] ?? new Date().getFullYear());
-    let m = month ? parseInt(month, 10) : (new Date().getMonth() + 1);
-    m -= 1;
-    if (m < 1) {
-      m = 12;
-      y -= 1;
+    if (month) {
+      let m = parseInt(month, 10) - 1;
+      if (m < 1) {
+        m = 12;
+        y -= 1;
+      }
+      onYearChange(String(y));
+      onMonthChange(String(m));
+    } else {
+      onYearChange(String(y - 1));
     }
-    onYearChange(String(y));
-    onMonthChange(String(m));
   }
 
   function handleNext() {
     onRangeChange?.(null);
     let y = year ? parseInt(year, 10) : (years[0] ?? new Date().getFullYear());
-    let m = month ? parseInt(month, 10) : (new Date().getMonth() + 1);
-    m += 1;
-    if (m > 12) {
-      m = 1;
-      y += 1;
+    if (month) {
+      let m = parseInt(month, 10) + 1;
+      if (m > 12) {
+        m = 1;
+        y += 1;
+      }
+      onYearChange(String(y));
+      onMonthChange(String(m));
+    } else {
+      onYearChange(String(y + 1));
     }
-    onYearChange(String(y));
-    onMonthChange(String(m));
   }
 
   return (
     <div className="flex items-center gap-1.5">
-      <button
-        type="button"
-        onClick={handlePrev}
-        title="Período anterior (mes anterior)"
-        className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 shadow-xs transition-colors flex items-center justify-center shrink-0"
-      >
-        <ChevronLeft size={16} />
-      </button>
+      {hasPeriod && (
+        <button
+          type="button"
+          onClick={handlePrev}
+          title="Período anterior"
+          className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 shadow-xs transition-colors flex items-center justify-center shrink-0"
+        >
+          <ChevronLeft size={16} />
+        </button>
+      )}
 
       <select
         title="Año"
@@ -434,7 +444,14 @@ function YearMonthFilter({
       <select
         title="Mes"
         value={month}
-        onChange={e => { onMonthChange(e.target.value); onRangeChange?.(null); }}
+        onChange={e => {
+          const m = e.target.value;
+          onMonthChange(m);
+          if (m && !year && years.length > 0) {
+            onYearChange(String(years[0]));
+          }
+          onRangeChange?.(null);
+        }}
         className={selectCls}
       >
         <option value="">Mes</option>
@@ -445,14 +462,16 @@ function YearMonthFilter({
         ))}
       </select>
 
-      <button
-        type="button"
-        onClick={handleNext}
-        title="Período posterior (mes siguiente)"
-        className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 shadow-xs transition-colors flex items-center justify-center shrink-0"
-      >
-        <ChevronRight size={16} />
-      </button>
+      {hasPeriod && (
+        <button
+          type="button"
+          onClick={handleNext}
+          title="Período posterior"
+          className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 shadow-xs transition-colors flex items-center justify-center shrink-0"
+        >
+          <ChevronRight size={16} />
+        </button>
+      )}
     </div>
   );
 }
