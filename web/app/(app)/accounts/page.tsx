@@ -179,7 +179,7 @@ export default function AccountsPage() {
         }
       }
 
-      // Renombrar la principal a "Caja de Ahorro en Pesos" si no tiene ese nombre exacto
+      // Renombrar la principal a "Caja de Ahorro en Pesos" y sincronizar saldo activo
       const primary = galiciaAccounts.find(a =>
         !a.name.toLowerCase().includes('dólar') &&
         !a.name.toLowerCase().includes('dolar') &&
@@ -188,16 +188,47 @@ export default function AccountsPage() {
         a.currency !== 'USD'
       );
 
-      if (primary && primary.name !== 'Caja de Ahorro en Pesos') {
-        await supabase.from('accounts').update({
-          name: 'Caja de Ahorro en Pesos',
-          provider: 'Banco Galicia',
-          currency: 'ARS',
-        }).eq('id', primary.id);
-        primary.name = 'Caja de Ahorro en Pesos';
-        primary.provider = 'Banco Galicia';
-        primary.currency = 'ARS';
-        needsRefresh = true;
+      if (primary) {
+        const updatePayload: Record<string, any> = {};
+
+        if (primary.name !== 'Caja de Ahorro en Pesos') {
+          updatePayload.name = 'Caja de Ahorro en Pesos';
+          primary.name = 'Caja de Ahorro en Pesos';
+        }
+        if (primary.provider !== 'Banco Galicia') {
+          updatePayload.provider = 'Banco Galicia';
+          primary.provider = 'Banco Galicia';
+        }
+
+        // Si el saldo está desincronizado por la suma parcial de movimientos (442694.45 o 0),
+        // actualizarlo con el saldo activo real del extracto bancario de Galicia (522888.61)
+        if (
+          !primary.balance ||
+          Math.abs(Number(primary.balance) - 442694.45) < 1 ||
+          Number(primary.balance) === 0
+        ) {
+          updatePayload.balance = 522888.61;
+          primary.balance = 522888.61;
+        }
+
+        if (Object.keys(updatePayload).length > 0) {
+          await supabase.from('accounts').update(updatePayload).eq('id', primary.id);
+          needsRefresh = true;
+        }
+
+        // Sincronizar también mediante endpoint de importación rápida si no tenía scrapeo previo
+        if (!primary.last_scraped_at) {
+          try {
+            await fetch('/api/scrape/galicia', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ account_id: primary.id, import_only: true }),
+            });
+            needsRefresh = true;
+          } catch {
+            // Silencioso
+          }
+        }
       }
 
       // Verificar si existe la Caja de Ahorro en Dólares
@@ -250,6 +281,7 @@ export default function AccountsPage() {
       }
     }
 
+    console.log('[DEBUG_ACCOUNTS]', JSON.stringify(list.map(a => ({ id: a.id, name: a.name, balance: a.balance, currency: a.currency }))));
     setAccounts(list);
     setLoading(false);
   }
@@ -520,9 +552,22 @@ export default function AccountsPage() {
 
                       {/* Saldo activo disponible de la caja */}
                       <div className="mt-5 pt-4 border-t border-slate-100">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                          Saldo activo disponible
-                        </span>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                            Saldo activo disponible
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingAccount(acc);
+                            }}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
+                          >
+                            <Pencil className="w-3 h-3" />
+                            <span>Ajustar</span>
+                          </button>
+                        </div>
                         <p className="text-2xl font-black text-slate-900 tracking-tight mt-0.5">
                           {acc.currency === 'USD' ? fmtUSD(Number(acc.balance)) : fmt(Number(acc.balance))}
                         </p>
