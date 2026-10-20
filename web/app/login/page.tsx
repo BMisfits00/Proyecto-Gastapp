@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { Landmark } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -24,6 +25,12 @@ export default function LoginPage() {
     if (isRegister) {
       const { error } = await supabase.auth.signUp({ email, password });
       if (error) { setError(error.message); setLoading(false); return; }
+      // Enviar email de bienvenida por Resend
+      fetch('/api/auth/send-welcome', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      }).catch(() => {});
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) { setError(error.message); setLoading(false); return; }
@@ -84,13 +91,12 @@ export default function LoginPage() {
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="block text-xs font-bold text-slate-700">Contraseña</label>
                   {!isRegister && (
-                    <button
-                      type="button"
-                      onClick={() => alert('La funcionalidad de recuperación por correo se habilitará en la próxima actualización.')}
+                    <Link
+                      href="/forgot-password"
                       className="text-xs text-[#1E40AF] hover:underline font-semibold cursor-pointer"
                     >
                       ¿Olvidaste tu contraseña?
-                    </button>
+                    </Link>
                   )}
                 </div>
                 <Input

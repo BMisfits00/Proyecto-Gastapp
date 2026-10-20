@@ -9,6 +9,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthStackParamList } from '../../navigation/AuthNavigator';
 import { useAuth } from '../../hooks/useAuth';
+import { authService } from '../../services/authService';
 import { biometricService } from '../../services/biometricService';
 import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
@@ -42,6 +43,19 @@ export function LoginScreen({ navigation }: Props) {
       await signIn(email.trim(), password);
     } catch {
       // El error ya queda expuesto en useAuth().error
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email.trim()) {
+      Alert.alert('Recuperar contraseña', 'Por favor ingresá tu email para enviarte el enlace de recuperación.');
+      return;
+    }
+    try {
+      await authService.resetPassword(email.trim());
+      Alert.alert('Correo enviado', `Enviamos las instrucciones a ${email.trim()} para restablecer tu clave.`);
+    } catch (err: any) {
+      Alert.alert('Error', err.message ?? 'No se pudo enviar el correo de recuperación.');
     }
   };
 
@@ -112,6 +126,15 @@ export function LoginScreen({ navigation }: Props) {
               isPassword
               icon="lock-closed-outline"
             />
+
+            <TouchableOpacity
+              onPress={handleForgotPassword}
+              style={{ alignSelf: 'flex-end', marginBottom: Spacing.md, marginTop: -Spacing.xs }}
+            >
+              <Text style={{ color: Colors.primary, fontSize: FontSize.xs, fontWeight: '600' }}>
+                ¿Olvidaste tu contraseña?
+              </Text>
+            </TouchableOpacity>
 
             <Button
               title="Iniciar sesión"

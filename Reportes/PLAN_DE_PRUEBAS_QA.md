@@ -38,7 +38,7 @@ Este documento detalla el alcance exhaustivo de pruebas para **Gastapp** (Mobile
 | **TC-AUT-02** | Login Manual y Registro en SecureStore | Dispositivo con sensor biométrico habilitado. | Iniciar sesión exitosamente con email y password. | Credenciales válidas. | Token de sesión activo; credenciales encriptadas en Keychain/Keystore. | Alta (P1) | 🟢 Verificado |
 | **TC-AUT-03** | Ingreso Biométrico Directo | Credenciales previas guardadas en SecureStore. | Tocar "Ingresar con Face ID / Huella" y validar sensor. | Sensor biométrico aprobado. | Login automático y navegación directa al Dashboard. | Alta (P1) | 🟢 Verificado |
 | **TC-AUT-04** | Fallback Biométrico | Cancelar el sensor biométrico. | Presionar cancelar en el prompt del sistema. | Cancelación. | Retorno al formulario normal de email y contraseña. | Media (P2) | 🟢 Verificado |
-| **TC-AUT-05** | Recuperación de Contraseña | Usuario con cuenta registrada. | Solicitar reseteo de clave por email. | Email existente. | Envío de correo con token/link para fijar nueva contraseña. | Media (P2) | ⏳ Backlog |
+| **TC-AUT-05** | Recuperación de Contraseña | Usuario con cuenta registrada. | Solicitar reseteo de clave por email. | Email existente. | Envío de correo con token/link para fijar nueva contraseña por Resend. | Media (P2) | 🟢 Verificado |
 
 ---
 

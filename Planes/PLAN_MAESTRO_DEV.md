@@ -86,13 +86,20 @@ Gastapp opera bajo un modelo de arquitectura desacoplada y reactiva en tres capa
 | 2026-10-20 | v3.0.0 | QA / CI | Suite de Jest con 12 tests unitarios al 100%. | Dev Lead |
 | 2026-10-20 | v3.0.0 | Feature | Servicio y hook de rendimiento diario (`daily_yields`). | Dev Lead |
 | 2026-10-20 | v3.1.0 | Web UI | Rediseño integral estilo Portal Bancario (shadcn/ui, azul marino/slate/blanco). | Dev Lead |
+| 2026-10-20 | v3.2.0 | Auth / Email | Integración de Resend, recuperación de contraseña y plantillas corporativas. | Dev Lead |
+| 2026-10-20 | v3.2.0 | DB Cron | Migración 008 con pg_cron para liquidación diaria automática de rendimientos. | Dev Lead |
 
 ---
 
-## 4. Backlog de Próximas Mejoras
+## 4. Estado de Backlog
 
-* **Recuperación de Contraseña (`authService.resetPassword`):**
-  * Agregar botón *"¿Olvidaste tu contraseña?"* en la pantalla de login tanto en la app web (`/login`) como en la mobile (`LoginScreen.tsx`).
-  * Integración con `supabase.auth.resetPasswordForEmail(email, { redirectTo: '...' })`.
-  * Pantalla para ingreso y confirmación de nueva contraseña.
+* [x] **Recuperación de Contraseña (`authService.resetPassword`):**
+  * Botón *"¿Olvidaste tu contraseña?"* en Web (`/forgot-password`) y Mobile (`LoginScreen.tsx`).
+  * Integración con Resend SDK y Supabase Auth (`/api/auth/reset-password`).
+  * Pantalla de actualización de credenciales (`/auth/update-password`).
+  * Plantillas de correo bancario HTML (recuperación y bienvenida).
+* [x] **Cron de Rendimientos Diarios (`daily_yields`):**
+  * Migración 008 (`008_daily_yields_cron.sql`) con job autónomo en `pg_cron`.
+* [ ] **Pruebas de Campo Mobile (React Native):**
+  * Ejecución con `npx expo start` y validación de transferencias y biometría.
 
