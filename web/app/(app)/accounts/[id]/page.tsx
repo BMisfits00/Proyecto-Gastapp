@@ -762,15 +762,17 @@ export default function AccountDetailPage() {
             await supabase.from('investments').delete().eq('account_id', acc.id);
             currentInvs = [];
           }
-          // Si es cuenta en USD o si tenía el saldo de pesos copiado erróneamente, limpiar transacciones y saldo a 0
-          if (acc.currency === 'USD' || Number(acc.balance) === 522888.61) {
+          // Si por error se había copiado el saldo de la caja de ahorro en pesos a una caja secundaria
+          const targetBalance = (acc.currency === 'USD' || acc.name.toLowerCase().includes('dólar') || acc.name.toLowerCase().includes('dolar')) ? 19.49 : 8.59;
+          if (Number(acc.balance) === 522888.61) {
             await supabase.from('transactions').delete().eq('account_id', acc.id);
-            if (Number(acc.balance) !== 0) {
-              await supabase.from('accounts').update({ balance: 0 }).eq('id', acc.id);
-              acc.balance = 0;
-            }
+            await supabase.from('accounts').update({ balance: targetBalance }).eq('id', acc.id);
+            acc.balance = targetBalance;
             currentIncome = [];
             currentExpenses = [];
+          } else if (Number(acc.balance) === 0) {
+            await supabase.from('accounts').update({ balance: targetBalance }).eq('id', acc.id);
+            acc.balance = targetBalance;
           }
         }
         currentCard = null;

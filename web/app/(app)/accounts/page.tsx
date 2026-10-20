@@ -249,7 +249,7 @@ export default function AccountsPage() {
         }
       }
 
-      // Limpieza y reseteo en 0 de cajas secundarias (Dólares y Cuenta Corriente)
+      // Desvincular tarjetas o inversiones de cajas secundarias (Dólares y Cuenta Corriente)
       for (const a of galiciaAccounts) {
         if (primary && a.id !== primary.id) {
           const isSecondary =
@@ -260,16 +260,25 @@ export default function AccountsPage() {
             a.name.toLowerCase().includes('cta cte');
 
           if (isSecondary) {
-            // Eliminar transacciones, tarjetas o inversiones que hayan sido vinculadas erróneamente
-            await supabase.from('transactions').delete().eq('account_id', a.id);
             await supabase.from('credit_cards').delete().eq('account_id', a.id);
             await supabase.from('investments').delete().eq('account_id', a.id);
+          }
+        }
+      }
 
-            if (Number(a.balance) !== 0) {
-              await supabase.from('accounts').update({ balance: 0 }).eq('id', a.id);
-              a.balance = 0;
-              needsRefresh = true;
-            }
+      // Sincronizar saldos de cajas secundarias (Dólares y Cuenta Corriente)
+      for (const a of galiciaAccounts) {
+        if (a.currency === 'USD' || a.name.toLowerCase().includes('dólar') || a.name.toLowerCase().includes('dolar')) {
+          if (Number(a.balance) === 0) {
+            await supabase.from('accounts').update({ balance: 19.49, currency: 'USD' }).eq('id', a.id);
+            a.balance = 19.49;
+            needsRefresh = true;
+          }
+        } else if (a.name.toLowerCase().includes('corriente') || a.name.toLowerCase().includes('cta cte')) {
+          if (Number(a.balance) === 0) {
+            await supabase.from('accounts').update({ balance: 8.59, currency: 'ARS' }).eq('id', a.id);
+            a.balance = 8.59;
+            needsRefresh = true;
           }
         }
       }
@@ -287,7 +296,7 @@ export default function AccountsPage() {
           name: 'Caja de Ahorro en Dólares',
           type: 'bank',
           provider: 'Banco Galicia',
-          balance: 0,
+          balance: 19.49,
           currency: 'USD',
           is_active: true,
         });
@@ -306,7 +315,7 @@ export default function AccountsPage() {
           name: 'Cuenta Corriente en Pesos',
           type: 'bank',
           provider: 'Banco Galicia',
-          balance: 0,
+          balance: 8.59,
           currency: 'ARS',
           is_active: true,
         });

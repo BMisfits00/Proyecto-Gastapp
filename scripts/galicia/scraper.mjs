@@ -150,10 +150,15 @@ function parseBoxInfo(text, index) {
   if (
     lower.includes('u$s') ||
     lower.includes('usd') ||
+    lower.includes('u$d') ||
     lower.includes('dólar') ||
     lower.includes('dolar') ||
+    lower.includes('dolares') ||
+    lower.includes('dólares') ||
     lower.includes('ca u$s') ||
-    lower.includes('ca us$')
+    lower.includes('ca us$') ||
+    lower.includes('en dolares') ||
+    lower.includes('en dólares')
   ) {
     currency = 'USD';
   }
@@ -165,23 +170,30 @@ function parseBoxInfo(text, index) {
     lower.includes('corriente') ||
     lower.includes('cta cte') ||
     lower.includes('cta. cte') ||
-    lower.includes('cc $')
+    lower.includes('cc $') ||
+    clean.startsWith('CC ')
   ) {
     name = 'Cuenta Corriente en Pesos';
   } else if (
     lower.includes('ahorro') ||
-    lower.includes('ca $')
+    lower.includes('ca $') ||
+    clean.includes('CA$')
   ) {
     name = 'Caja de Ahorro en Pesos';
   } else {
     name = index === 0 ? 'Caja de Ahorro en Pesos' : `Cuenta Galicia ${index + 1}`;
   }
 
-  // Extraer saldo que figura en la card del banco si está visible
-  const matchBal = clean.match(/(?:[$]|u[$]s|usd)\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)/i);
+  // Extraer saldo que figura en la card del banco
   let displayedBalance = null;
-  if (matchBal) {
-    displayedBalance = parseARS(matchBal[1]);
+  const matchSaldo = clean.match(/Saldo en (?:Pesos|Dolares|Dólares)\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)/i);
+  if (matchSaldo) {
+    displayedBalance = parseARS(matchSaldo[1]);
+  } else {
+    const matchBal = clean.match(/(?:[$]|u[$]s|u[$]d|usd)\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)/i);
+    if (matchBal) {
+      displayedBalance = parseARS(matchBal[1]);
+    }
   }
 
   return { name, currency, displayedBalance, rawText: clean };
@@ -197,8 +209,16 @@ async function scrapeMovements(page, store) {
     // Esperar a que se rendericen las cards de cuentas
     await page.waitForSelector('div.box_ctas', { timeout: 10000 }).catch(() => null);
 
-    const initialBoxes = page.locator('div.box_ctas.clickeable, div.box_ctas');
-    const count = await initialBoxes.count();
+    // 1. Leer metadatos y saldos de TODAS las cajas en pantalla ANTES de hacer clicks (para evitar que mutaciones del DOM las oculten)
+    const boxesMetadata = await page.evaluate(() => {
+      const elements = document.querySelectorAll('div.box_ctas');
+      return Array.from(elements).map((el, i) => ({
+        index: i,
+        text: (el.innerText || '').replace(/\s+/g, ' ').trim(),
+      }));
+    });
+
+    const count = boxesMetadata.length;
     console.log(`  Encontradas ${count} cajas/cuentas en pantalla.`);
 
     if (count === 0) {
@@ -210,26 +230,27 @@ async function scrapeMovements(page, store) {
 
     for (let i = 0; i < count; i++) {
       try {
-        // Re-obtener los locators para evitar referencias DOM desactualizadas tras clicks
-        const currentBoxes = page.locator('div.box_ctas.clickeable, div.box_ctas');
-        const box = currentBoxes.nth(i);
-        const cardText = await box.innerText().catch(() => '');
-        const boxInfo = parseBoxInfo(cardText, i);
-        console.log(`  [Caja ${i + 1}/${count}] ${boxInfo.name} (${boxInfo.currency})...`);
+        const boxInfo = parseBoxInfo(boxesMetadata[i].text, i);
+        console.log(`  [Caja ${i + 1}/${count}] ${boxInfo.name} (${boxInfo.currency}) | Saldo detectado: ${boxInfo.displayedBalance}...`);
 
-        // IMPORTANTE: Limpiar el store previo para no mezclar movimientos entre cuentas
+        // Limpiar el store previo para no mezclar movimientos entre cuentas
         delete store['GetMovimientosCuenta'];
 
         // Preparar promesa para interceptar GetMovimientosCuenta generado por este click
         const responsePromise = page.waitForResponse(
           res => res.url().includes('GetMovimientosCuenta') && res.status() === 200,
-          { timeout: 8000 }
+          { timeout: 4500 }
         ).catch(() => null);
 
-        // Click en la caja específica
-        await box.scrollIntoViewIfNeeded().catch(() => {});
-        await box.click({ force: true });
-        await page.waitForTimeout(2000);
+        // Click en la caja específica disparando el evento de forma segura en el DOM
+        await page.evaluate((idx) => {
+          const boxes = document.querySelectorAll('div.box_ctas');
+          if (boxes[idx]) {
+            boxes[idx].click();
+          }
+        }, i).catch(() => {});
+
+        await page.waitForTimeout(1500);
 
         const response = await responsePromise;
         let raw = null;
@@ -238,7 +259,6 @@ async function scrapeMovements(page, store) {
             raw = await response.json();
           } catch {}
         } else {
-          // Solo si el interceptor global lo capturó en esta misma llamada
           raw = store['GetMovimientosCuenta'] || null;
         }
 
@@ -275,6 +295,22 @@ async function scrapeMovements(page, store) {
       } catch (boxErr) {
         console.warn(`    ⚠ Error al procesar caja ${i + 1}:`, boxErr.message);
       }
+    }
+
+    // Backup adicional: Si alguna caja secundaria no tiene saldo pero vino en GetSeccionMisCuentas
+    const misCuentasHtml = store['GetSeccionMisCuentas']?.Model?.Html || '';
+    if (misCuentasHtml) {
+      accountsData.forEach(acc => {
+        if (acc.currency === 'USD' && acc.balance === 0) {
+          const mUSD = misCuentasHtml.match(/U\$D\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)/i);
+          if (mUSD) acc.balance = parseARS(mUSD[1]);
+        }
+        if (acc.name.includes('Corriente') && acc.balance === 0) {
+          const mCC = misCuentasHtml.match(/Cuenta Corriente pesos[^]*?\$?\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)/i) ||
+                      misCuentasHtml.match(/Saldo en Pesos\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)/i);
+          if (mCC) acc.balance = parseARS(mCC[1]);
+        }
+      });
     }
 
     const primaryAccount = accountsData.find(a => a.currency === 'ARS' && a.name.includes('Ahorro')) || accountsData[0];
