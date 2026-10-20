@@ -145,10 +145,18 @@ export default function AccountsPage() {
     setSyncingGalicia(true);
     setSyncMsg(null);
     try {
+      const galiciaAcc = accounts.find(a =>
+        (a.provider?.toLowerCase().includes('galicia') || a.name.toLowerCase().includes('galicia')) &&
+        !a.name.toLowerCase().includes('dólar') &&
+        !a.name.toLowerCase().includes('dolar') &&
+        !a.name.toLowerCase().includes('corriente') &&
+        !a.name.toLowerCase().includes('cta cte')
+      ) || accounts.find(a => a.provider?.toLowerCase().includes('galicia') || a.name.toLowerCase().includes('galicia'));
+
       const res = await fetch('/api/scrape/galicia', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ account_id: galiciaAcc?.id }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Error desconocido');

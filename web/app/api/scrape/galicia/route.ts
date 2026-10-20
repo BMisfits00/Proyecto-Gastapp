@@ -49,10 +49,6 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const { account_id, import_only } = body as { account_id?: string; import_only?: boolean };
 
-  if (!account_id) {
-    return NextResponse.json({ error: 'account_id requerido' }, { status: 400 });
-  }
-
   // Auth: obtener usuario desde la sesión
   const cookieStore = await cookies();
   const supabase = createServerClient(
@@ -70,6 +66,32 @@ export async function POST(req: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+
+  // Buscar todas las cuentas activas para identificar la cuenta principal (Caja de Ahorro en Pesos)
+  const { data: dbAccounts } = await supabase
+    .from('accounts')
+    .select('id, name, currency, provider')
+    .eq('user_id', user.id)
+    .eq('is_active', true);
+
+  const galiciaAccounts = (dbAccounts || []).filter((a: any) =>
+    a.provider?.toLowerCase().includes('galicia') ||
+    a.name.toLowerCase().includes('galicia')
+  );
+
+  const primaryGaliciaAcc = galiciaAccounts.find((a: any) =>
+    (a.currency === 'ARS' || !a.currency) &&
+    !a.name.toLowerCase().includes('corriente') &&
+    !a.name.toLowerCase().includes('cta cte') &&
+    !a.name.toLowerCase().includes('dólar') &&
+    !a.name.toLowerCase().includes('dolar')
+  ) || galiciaAccounts[0];
+
+  const primaryAccountId = primaryGaliciaAcc ? primaryGaliciaAcc.id : account_id;
+
+  if (!primaryAccountId) {
+    return NextResponse.json({ error: 'No se encontró una cuenta activa de Galicia para asociar los datos' }, { status: 400 });
+  }
 
   // Ejecutar el scraper (salvo que sea import_only)
   if (!import_only) {
@@ -115,28 +137,6 @@ export async function POST(req: NextRequest) {
     const m = String(summary.dueDate).match(/(\d{2})\/(\d{2})/);
     if (m) dueDate = `${new Date().getFullYear()}-${m[2]}-${m[1]}`;
   }
-
-  // Buscar todas las cuentas activas para identificar la cuenta principal (Caja de Ahorro en Pesos)
-  const { data: dbAccounts } = await supabase
-    .from('accounts')
-    .select('id, name, currency, provider')
-    .eq('user_id', user.id)
-    .eq('is_active', true);
-
-  const galiciaAccounts = (dbAccounts || []).filter((a: any) =>
-    a.provider?.toLowerCase().includes('galicia') ||
-    a.name.toLowerCase().includes('galicia')
-  );
-
-  const primaryGaliciaAcc = galiciaAccounts.find((a: any) =>
-    (a.currency === 'ARS' || !a.currency) &&
-    !a.name.toLowerCase().includes('corriente') &&
-    !a.name.toLowerCase().includes('cta cte') &&
-    !a.name.toLowerCase().includes('dólar') &&
-    !a.name.toLowerCase().includes('dolar')
-  ) || galiciaAccounts[0];
-
-  const primaryAccountId = primaryGaliciaAcc ? primaryGaliciaAcc.id : account_id;
 
   // Guardar o actualizar credit_card vinculada SIEMPRE a la cuenta principal en pesos
   const cardPayload = {
@@ -199,7 +199,7 @@ export async function POST(req: NextRequest) {
     await supabase
       .from('accounts')
       .update({ last_scraped_at: syncTimestamp })
-      .eq('id', account_id);
+      .eq('id', primaryAccountId);
   } catch {
     // Si la columna aún no fue creada en accounts, se ignora silenciosamente
   }
