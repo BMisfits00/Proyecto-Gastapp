@@ -8,7 +8,9 @@ import {
   ArrowLeft, TrendingUp, TrendingDown, CreditCard as CreditCardIcon,
   Landmark, X, RefreshCw, CheckCircle, AlertCircle,
   ChevronLeft, ChevronRight, Calendar, Scale, Sparkles,
+  Info,
 } from 'lucide-react';
+import { ItemDetailModal } from './ItemDetailModal';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
@@ -824,6 +826,7 @@ export default function AccountDetailPage() {
       {tab === 'income'      && (
         <IncomeTab
           transactions={income}
+          accountName={account.name}
           onCategoryAssigned={(txId, cat) => {
             setIncome(prev => prev.map(t => {
               if (t.id !== txId) return t;
@@ -841,6 +844,7 @@ export default function AccountDetailPage() {
       {tab === 'expense'     && (
         <ExpenseTab
           transactions={expenses}
+          accountName={account.name}
           onCategoryAssigned={(txId, cat) => {
             setExpenses(prev => prev.map(t => {
               if (t.id !== txId) return t;
@@ -1128,9 +1132,11 @@ function BalanceTab({
 
 function IncomeTab({
   transactions,
+  accountName,
   onCategoryAssigned,
 }: {
   transactions: Transaction[];
+  accountName?: string;
   onCategoryAssigned?: (txId: string, cat: CategoryOption | null) => void;
 }) {
   const [range, setRange]         = useState<DateRange>(null);
@@ -1181,6 +1187,7 @@ function IncomeTab({
         transactions={filtered}
         type="income"
         categories={allCats}
+        accountName={accountName}
         onCategoryCreated={cat => setAllCats(prev => [...prev, cat].sort((a, b) => a.name.localeCompare(b.name)))}
         onHideCategory={handleHide}
         onCategoryAssigned={onCategoryAssigned}
@@ -1193,9 +1200,11 @@ function IncomeTab({
 
 function ExpenseTab({
   transactions,
+  accountName,
   onCategoryAssigned,
 }: {
   transactions: Transaction[];
+  accountName?: string;
   onCategoryAssigned?: (txId: string, cat: CategoryOption | null) => void;
 }) {
   const [range, setRange]         = useState<DateRange>(null);
@@ -1246,6 +1255,7 @@ function ExpenseTab({
         transactions={filtered}
         type="expense"
         categories={allCats}
+        accountName={accountName}
         onCategoryCreated={cat => setAllCats(prev => [...prev, cat].sort((a, b) => a.name.localeCompare(b.name)))}
         onHideCategory={handleHide}
         onCategoryAssigned={onCategoryAssigned}
@@ -1274,6 +1284,7 @@ function CardTab({
   const [allCats, setAllCats]       = useState<CategoryOption[]>([]);
   const [catOverrides, setCatOverrides] = useState<Record<string, CategoryOption | null>>({});
   const [showCreate, setShowCreate] = useState(false);
+  const [selectedMv, setSelectedMv] = useState<CardMovement | null>(null);
   const [page, setPage]             = useState(0);
 
   useEffect(() => {
@@ -1423,9 +1434,19 @@ function CardTab({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {pagedMvs.map(m => (
-                  <tr key={m.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="px-6 py-3 text-slate-900 text-sm font-semibold">{m.merchant}</td>
-                    <td className="px-6 py-3">
+                  <tr
+                    key={m.id}
+                    onClick={() => setSelectedMv(m)}
+                    className="hover:bg-blue-50/50 transition-colors cursor-pointer group"
+                    title="Hacé clic para ver el detalle completo"
+                  >
+                    <td className="px-6 py-3 text-slate-900 text-sm font-semibold">
+                      <div className="flex items-center gap-1.5">
+                        <span className="group-hover:text-blue-600 transition-colors">{m.merchant}</span>
+                        <Info size={13} className="text-slate-300 group-hover:text-blue-500 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                    </td>
+                    <td className="px-6 py-3" onClick={e => e.stopPropagation()}>
                       <InlineCategoryPicker
                         current={getCategory(m)}
                         categories={allCats}
@@ -1458,6 +1479,19 @@ function CardTab({
         <CreateCategoryModal
           onCreated={cat => setAllCats(prev => [...prev, cat].sort((a, b) => a.name.localeCompare(b.name)))}
           onClose={() => setShowCreate(false)}
+        />
+      )}
+
+      {selectedMv && (
+        <ItemDetailModal
+          item={{
+            kind: 'card_movement',
+            mv: selectedMv,
+            category: getCategory(selectedMv),
+            cardBrand: card.brand,
+            cardLastDigits: card.last_digits,
+          }}
+          onClose={() => setSelectedMv(null)}
         />
       )}
     </div>
@@ -1645,6 +1679,7 @@ function TransactionTable({
   transactions,
   type,
   categories,
+  accountName,
   onCategoryCreated,
   onHideCategory,
   onCategoryAssigned,
@@ -1652,6 +1687,7 @@ function TransactionTable({
   transactions: Transaction[];
   type: 'income' | 'expense';
   categories: CategoryOption[];
+  accountName?: string;
   onCategoryCreated: (cat: CategoryOption) => void;
   onHideCategory?: (catId: string) => void;
   onCategoryAssigned?: (txId: string, cat: CategoryOption | null) => void;
@@ -1659,6 +1695,7 @@ function TransactionTable({
   const [page, setPage]           = useState(0);
   const [overrides, setOverrides] = useState<Record<string, CategoryOption | null>>({});
   const [showCreate, setShowCreate] = useState(false);
+  const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
   const color = type === 'income' ? 'text-emerald-600' : 'text-rose-600';
   const sign  = type === 'income' ? '+' : '-';
 
@@ -1715,11 +1752,21 @@ function TransactionTable({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {paged.map(t => (
-                  <tr key={t.id} className="hover:bg-slate-50/80 transition-colors">
+                  <tr
+                    key={t.id}
+                    onClick={() => setSelectedTx(t)}
+                    className="hover:bg-blue-50/50 transition-colors cursor-pointer group"
+                    title="Hacé clic para ver el detalle completo"
+                  >
                     <td className="px-6 py-3 text-slate-900 text-sm font-semibold">
-                      <span className="block max-w-xs truncate" title={t.description || undefined}>{t.description || '—'}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="block max-w-xs truncate group-hover:text-blue-600 transition-colors" title={t.description || undefined}>
+                          {t.description || '—'}
+                        </span>
+                        <Info size={13} className="text-slate-300 group-hover:text-blue-500 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
                     </td>
-                    <td className="px-6 py-3">
+                    <td className="px-6 py-3" onClick={e => e.stopPropagation()}>
                       <InlineCategoryPicker
                         current={getCategory(t)}
                         categories={categories}
@@ -1745,6 +1792,18 @@ function TransactionTable({
         <CreateCategoryModal
           onCreated={cat => { onCategoryCreated(cat); setShowCreate(false); }}
           onClose={() => setShowCreate(false)}
+        />
+      )}
+
+      {selectedTx && (
+        <ItemDetailModal
+          item={{
+            kind: 'transaction',
+            tx: selectedTx,
+            category: getCategory(selectedTx),
+            accountName,
+          }}
+          onClose={() => setSelectedTx(null)}
         />
       )}
     </>
