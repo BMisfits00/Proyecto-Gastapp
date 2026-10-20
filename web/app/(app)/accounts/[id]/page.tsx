@@ -779,9 +779,59 @@ export default function AccountDetailPage() {
 
       {/* Contenido */}
       {tab === 'balance'     && <BalanceTab income={income} expenses={expenses} card={card} cardMvs={cardMvs} investments={investments} />}
-      {tab === 'income'      && <IncomeTab transactions={income} />}
-      {tab === 'expense'     && <ExpenseTab transactions={expenses} />}
-      {tab === 'card'        && <CardTab card={card} movements={cardMvs} accountId={id} />}
+      {tab === 'income'      && (
+        <IncomeTab
+          transactions={income}
+          onCategoryAssigned={(txId, cat) => {
+            setIncome(prev => prev.map(t => {
+              if (t.id !== txId) return t;
+              return {
+                ...t,
+                category_id: cat?.id ?? null,
+                category: cat
+                  ? { id: cat.id, name: cat.name, color: cat.color, user_id: null, type: 'income', icon: null, is_active: true, created_at: '' }
+                  : undefined,
+              };
+            }));
+          }}
+        />
+      )}
+      {tab === 'expense'     && (
+        <ExpenseTab
+          transactions={expenses}
+          onCategoryAssigned={(txId, cat) => {
+            setExpenses(prev => prev.map(t => {
+              if (t.id !== txId) return t;
+              return {
+                ...t,
+                category_id: cat?.id ?? null,
+                category: cat
+                  ? { id: cat.id, name: cat.name, color: cat.color, user_id: null, type: 'expense', icon: null, is_active: true, created_at: '' }
+                  : undefined,
+              };
+            }));
+          }}
+        />
+      )}
+      {tab === 'card'        && (
+        <CardTab
+          card={card}
+          movements={cardMvs}
+          accountId={id}
+          onCategoryAssigned={(mvId, cat) => {
+            setCardMvs(prev => prev.map(m => {
+              if (m.id !== mvId) return m;
+              return {
+                ...m,
+                category_id: cat?.id ?? null,
+                category: cat
+                  ? { id: cat.id, name: cat.name, color: cat.color, user_id: null, type: 'expense', icon: null, is_active: true, created_at: '' }
+                  : undefined,
+              };
+            }));
+          }}
+        />
+      )}
       {tab === 'investments' && <InvestmentsTab investments={investments} />}
     </div>
   );
@@ -1034,7 +1084,13 @@ function BalanceTab({
 
 // ─── Tab: Ingresos ────────────────────────────────────────────────────────────
 
-function IncomeTab({ transactions }: { transactions: Transaction[] }) {
+function IncomeTab({
+  transactions,
+  onCategoryAssigned,
+}: {
+  transactions: Transaction[];
+  onCategoryAssigned?: (txId: string, cat: CategoryOption | null) => void;
+}) {
   const [range, setRange]         = useState<DateRange>(null);
   const [year, setYear]           = useState('');
   const [month, setMonth]         = useState('');
@@ -1085,6 +1141,7 @@ function IncomeTab({ transactions }: { transactions: Transaction[] }) {
         categories={allCats}
         onCategoryCreated={cat => setAllCats(prev => [...prev, cat].sort((a, b) => a.name.localeCompare(b.name)))}
         onHideCategory={handleHide}
+        onCategoryAssigned={onCategoryAssigned}
       />
     </div>
   );
@@ -1092,7 +1149,13 @@ function IncomeTab({ transactions }: { transactions: Transaction[] }) {
 
 // ─── Tab: Gastos ──────────────────────────────────────────────────────────────
 
-function ExpenseTab({ transactions }: { transactions: Transaction[] }) {
+function ExpenseTab({
+  transactions,
+  onCategoryAssigned,
+}: {
+  transactions: Transaction[];
+  onCategoryAssigned?: (txId: string, cat: CategoryOption | null) => void;
+}) {
   const [range, setRange]         = useState<DateRange>(null);
   const [year, setYear]           = useState('');
   const [month, setMonth]         = useState('');
@@ -1143,6 +1206,7 @@ function ExpenseTab({ transactions }: { transactions: Transaction[] }) {
         categories={allCats}
         onCategoryCreated={cat => setAllCats(prev => [...prev, cat].sort((a, b) => a.name.localeCompare(b.name)))}
         onHideCategory={handleHide}
+        onCategoryAssigned={onCategoryAssigned}
       />
     </div>
   );
@@ -1150,7 +1214,17 @@ function ExpenseTab({ transactions }: { transactions: Transaction[] }) {
 
 // ─── Tab: Tarjeta ─────────────────────────────────────────────────────────────
 
-function CardTab({ card, movements, accountId }: { card: CreditCard | null; movements: CardMovement[]; accountId: string }) {
+function CardTab({
+  card,
+  movements,
+  accountId,
+  onCategoryAssigned,
+}: {
+  card: CreditCard | null;
+  movements: CardMovement[];
+  accountId: string;
+  onCategoryAssigned?: (movementId: string, cat: CategoryOption | null) => void;
+}) {
   const [range, setRange]           = useState<DateRange>(null);
   const [year, setYear]             = useState('');
   const [month, setMonth]           = useState('');
@@ -1182,8 +1256,22 @@ function CardTab({ card, movements, accountId }: { card: CreditCard | null; move
   }
 
   async function handleAssign(movementId: string, cat: CategoryOption | null) {
-    await supabase.from('card_movements').update({ category_id: cat?.id ?? null }).eq('id', movementId);
     setCatOverrides(prev => ({ ...prev, [movementId]: cat }));
+    onCategoryAssigned?.(movementId, cat);
+    try {
+      const res = await fetch('/api/categories/assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ table: 'card_movements', id: movementId, category_id: cat?.id ?? null }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        console.error('Error al guardar categoría en tarjeta:', data.error);
+        alert('No se pudo guardar la categoría en la tarjeta: ' + (data.error || 'Error desconocido'));
+      }
+    } catch (err: unknown) {
+      console.error('Error de red al guardar categoría en tarjeta:', err);
+    }
   }
 
   function getCategory(m: CardMovement): CategoryOption | null {
@@ -1511,12 +1599,20 @@ function Paginator({ page, total, onPrev, onNext }: {
   );
 }
 
-function TransactionTable({ transactions, type, categories, onCategoryCreated, onHideCategory }: {
+function TransactionTable({
+  transactions,
+  type,
+  categories,
+  onCategoryCreated,
+  onHideCategory,
+  onCategoryAssigned,
+}: {
   transactions: Transaction[];
   type: 'income' | 'expense';
   categories: CategoryOption[];
   onCategoryCreated: (cat: CategoryOption) => void;
   onHideCategory?: (catId: string) => void;
+  onCategoryAssigned?: (txId: string, cat: CategoryOption | null) => void;
 }) {
   const [page, setPage]           = useState(0);
   const [overrides, setOverrides] = useState<Record<string, CategoryOption | null>>({});
@@ -1537,8 +1633,22 @@ function TransactionTable({ transactions, type, categories, onCategoryCreated, o
   }
 
   async function handleAssign(txId: string, cat: CategoryOption | null) {
-    await supabase.from('transactions').update({ category_id: cat?.id ?? null }).eq('id', txId);
     setOverrides(prev => ({ ...prev, [txId]: cat }));
+    onCategoryAssigned?.(txId, cat);
+    try {
+      const res = await fetch('/api/categories/assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ table: 'transactions', id: txId, category_id: cat?.id ?? null }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        console.error('Error al guardar categoría en transacción:', data.error);
+        alert('No se pudo guardar la categoría: ' + (data.error || 'Error desconocido'));
+      }
+    } catch (err: unknown) {
+      console.error('Error de red al guardar categoría:', err);
+    }
   }
 
   const paged = transactions.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
