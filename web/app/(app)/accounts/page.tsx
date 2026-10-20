@@ -47,23 +47,30 @@ interface EntityGroup {
   lastScrapedAt: string | null;
 }
 
+function normalizeEntityName(provider?: string | null, name?: string | null): string {
+  const p = (provider || '').trim();
+  const n = (name || '').trim();
+  const combined = `${p} ${n}`.toLowerCase();
+
+  if (combined.includes('galicia')) return 'Banco Galicia';
+  if (combined.includes('mercado pago') || combined.includes('mercadopago')) return 'Mercado Pago';
+  if (combined.includes('santander')) return 'Banco Santander';
+  if (combined.includes('bbva')) return 'Banco BBVA';
+  if (combined.includes('macro')) return 'Banco Macro';
+  if (combined.includes('brubank')) return 'Brubank';
+  if (combined.includes('uala') || combined.includes('ualá')) return 'Ualá';
+  if (combined.includes('naranja')) return 'Naranja X';
+  if (combined.includes('personal pay')) return 'Personal Pay';
+
+  if (p) return p;
+  return 'Otras Cuentas';
+}
+
 function groupAccountsByEntity(accounts: Account[]): EntityGroup[] {
   const map = new Map<string, EntityGroup>();
 
   for (const acc of accounts) {
-    let prov = acc.provider?.trim();
-    if (!prov) {
-      const lower = (acc.name || '').toLowerCase();
-      if (lower.includes('galicia')) prov = 'Banco Galicia';
-      else if (lower.includes('mercado pago') || lower.includes('mercadopago')) prov = 'Mercado Pago';
-      else if (lower.includes('santander')) prov = 'Banco Santander';
-      else if (lower.includes('bbva')) prov = 'Banco BBVA';
-      else if (lower.includes('macro')) prov = 'Banco Macro';
-      else if (lower.includes('brubank')) prov = 'Brubank';
-      else if (lower.includes('uala') || lower.includes('ualá')) prov = 'Ualá';
-      else if (acc.type === 'cash') prov = 'Efectivo';
-      else prov = 'Otras Cuentas';
-    }
+    const prov = normalizeEntityName(acc.provider, acc.name);
 
     if (!map.has(prov)) {
       map.set(prov, {
@@ -92,6 +99,32 @@ function groupAccountsByEntity(accounts: Account[]): EntityGroup[] {
       }
     }
   }
+
+  // Ordenar sub-cuentas dentro de cada entidad para que Caja de Ahorro en Pesos esté primera,
+  // luego Caja de Ahorro en Dólares, y luego Cuenta Corriente en Pesos
+  map.forEach((group) => {
+    group.accounts.sort((a, b) => {
+      const aLower = a.name.toLowerCase();
+      const bLower = b.name.toLowerCase();
+
+      const aIsAhorroPesos = aLower.includes('ahorro') && (a.currency === 'ARS' || aLower.includes('pesos'));
+      const bIsAhorroPesos = bLower.includes('ahorro') && (b.currency === 'ARS' || bLower.includes('pesos'));
+      if (aIsAhorroPesos && !bIsAhorroPesos) return -1;
+      if (!aIsAhorroPesos && bIsAhorroPesos) return 1;
+
+      const aIsAhorroUSD = a.currency === 'USD' || aLower.includes('dólar') || aLower.includes('dolar');
+      const bIsAhorroUSD = b.currency === 'USD' || bLower.includes('dólar') || bLower.includes('dolar');
+      if (aIsAhorroUSD && !bIsAhorroUSD) return -1;
+      if (!aIsAhorroUSD && bIsAhorroUSD) return 1;
+
+      const aIsCC = aLower.includes('cuenta corriente') || aLower.includes('cta cte');
+      const bIsCC = bLower.includes('cuenta corriente') || bLower.includes('cta cte');
+      if (aIsCC && !bIsCC) return -1;
+      if (!aIsCC && bIsCC) return 1;
+
+      return a.name.localeCompare(b.name);
+    });
+  });
 
   // Ordenar grupos: Galicia primero, luego alfabéticamente
   return Array.from(map.values()).sort((a, b) => {
@@ -130,22 +163,32 @@ export default function AccountsPage() {
 
     let list = (data || []) as unknown as Account[];
 
-    // Auto-aprovisionar sub-cuentas de Banco Galicia si existe la entidad pero faltan cajas
+    // Auto-aprovisionar y unificar sub-cuentas de Banco Galicia bajo la misma entidad
     const galiciaAccounts = list.filter(a =>
-      a.provider?.toLowerCase().includes('galicia') ||
-      a.name.toLowerCase().includes('galicia')
+      normalizeEntityName(a.provider, a.name) === 'Banco Galicia'
     );
 
     if (galiciaAccounts.length > 0) {
       let needsRefresh = false;
-      const primary = galiciaAccounts[0];
 
-      // Renombrar prolijamente la principal a "Caja de Ahorro en Pesos" si tenía un nombre genérico
-      if (
-        primary.name.toLowerCase() === 'banco galicia' ||
-        primary.name.toLowerCase() === 'caja de ahorro' ||
-        primary.name.toLowerCase() === 'caja de ahorro galicia'
-      ) {
+      // Asegurar que todas las cuentas de Galicia tengan provider = 'Banco Galicia' en la base de datos
+      for (const a of galiciaAccounts) {
+        if (a.provider !== 'Banco Galicia') {
+          await supabase.from('accounts').update({ provider: 'Banco Galicia' }).eq('id', a.id);
+          a.provider = 'Banco Galicia';
+        }
+      }
+
+      // Renombrar la principal a "Caja de Ahorro en Pesos" si no tiene ese nombre exacto
+      const primary = galiciaAccounts.find(a =>
+        !a.name.toLowerCase().includes('dólar') &&
+        !a.name.toLowerCase().includes('dolar') &&
+        !a.name.toLowerCase().includes('cuenta corriente') &&
+        !a.name.toLowerCase().includes('cta cte') &&
+        a.currency !== 'USD'
+      );
+
+      if (primary && primary.name !== 'Caja de Ahorro en Pesos') {
         await supabase.from('accounts').update({
           name: 'Caja de Ahorro en Pesos',
           provider: 'Banco Galicia',
@@ -154,13 +197,14 @@ export default function AccountsPage() {
         primary.name = 'Caja de Ahorro en Pesos';
         primary.provider = 'Banco Galicia';
         primary.currency = 'ARS';
+        needsRefresh = true;
       }
 
       // Verificar si existe la Caja de Ahorro en Dólares
       const hasUSD = galiciaAccounts.some(a =>
         a.currency === 'USD' ||
-        a.name.toLowerCase().includes('dólares') ||
-        a.name.toLowerCase().includes('dolares')
+        a.name.toLowerCase().includes('dólar') ||
+        a.name.toLowerCase().includes('dolar')
       );
 
       if (!hasUSD) {
