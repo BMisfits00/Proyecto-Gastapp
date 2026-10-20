@@ -138,6 +138,37 @@ export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [syncingGalicia, setSyncingGalicia] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  async function handleSyncGalicia() {
+    setSyncingGalicia(true);
+    setSyncMsg(null);
+    try {
+      const res = await fetch('/api/scrape/galicia', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Error desconocido');
+      setSyncMsg({
+        type: 'success',
+        text: `¡Sincronización completada! Se actualizaron las cajas de Galicia (${data.movementsCount ?? 0} consumos de tarjeta · ${data.newTxCount ?? 0} transacciones).`,
+      });
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (err: unknown) {
+      setSyncMsg({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Error al sincronizar Banco Galicia',
+      });
+    } finally {
+      setSyncingGalicia(false);
+    }
+  }
+
   const [form, setForm] = useState({
     name: '',
     type: 'bank' as AccountType,
@@ -410,6 +441,17 @@ export default function AccountsPage() {
         </Button>
       </div>
 
+      {syncMsg && (
+        <div className={`p-4 rounded-2xl text-sm font-semibold flex items-center gap-2.5 border shadow-xs ${
+          syncMsg.type === 'success'
+            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+            : 'bg-rose-50 text-rose-800 border-rose-200'
+        }`}>
+          <RefreshCw className={`w-4 h-4 shrink-0 ${syncingGalicia ? 'animate-spin' : ''}`} />
+          <span>{syncMsg.text}</span>
+        </div>
+      )}
+
       {loading ? (
         <div className="py-24 text-center">
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#1E40AF] mb-4" />
@@ -474,6 +516,21 @@ export default function AccountsPage() {
                       )}
                     </div>
                   </div>
+
+                  {group.name.toLowerCase().includes('galicia') && (
+                    <Button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSyncGalicia();
+                      }}
+                      disabled={syncingGalicia}
+                      size="sm"
+                      className="gap-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${syncingGalicia ? 'animate-spin' : ''}`} />
+                      <span>{syncingGalicia ? 'Sincronizando...' : 'Sincronizar Banco Galicia'}</span>
+                    </Button>
+                  )}
 
                   <Button
                     onClick={() => {

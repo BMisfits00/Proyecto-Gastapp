@@ -952,12 +952,14 @@ export default function AccountDetailPage() {
             <span>{autoCatLoading ? 'Categorizando…' : 'Auto-categorizar'}</span>
           </button>
 
-          {isGalicia && isPrimary && (
+          {isGalicia && (
             <>
               <SyncButton state={syncState} onClick={handleSync} />
-              <div className="p-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200/80 shadow-xs" title="Tarjeta de Crédito Galicia">
-                <CreditCardIcon size={15} />
-              </div>
+              {isPrimary && (
+                <div className="p-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200/80 shadow-xs" title="Tarjeta de Crédito Galicia">
+                  <CreditCardIcon size={15} />
+                </div>
+              )}
             </>
           )}
         </div>
