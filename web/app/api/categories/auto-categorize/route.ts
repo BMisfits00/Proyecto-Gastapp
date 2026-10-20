@@ -5,6 +5,7 @@ import {
   CategoryRef,
   buildKnowledgeBase,
   predictCategory,
+  normalizeText,
 } from '@/lib/categorizer';
 
 export async function POST(req: NextRequest) {
@@ -92,11 +93,14 @@ export async function POST(req: NextRequest) {
     // Identificar IDs de categorías genéricas (para permitir mejorarlas)
     const genericCatIds = new Set(
       categories
-        .filter(c => c.name.toLowerCase() === 'otros gastos' || c.name.toLowerCase() === 'otros ingresos')
+        .filter(c => {
+          const n = normalizeText(c.name);
+          return n === 'otros gastos' || n === 'otros ingresos' || n === 'varios' || n === 'sin categoria';
+        })
         .map(c => c.id)
     );
 
-    // 3. Obtener transacciones bancarias (sin categoría o en categoría genérica)
+    // 3. Obtener transacciones bancarias
     let txQuery = supabase
       .from('transactions')
       .select('id, description, type, category_id')
@@ -108,14 +112,10 @@ export async function POST(req: NextRequest) {
 
     const { data: allAccountTx } = await txQuery;
 
-    const txToProcess = (allAccountTx ?? []).filter(
-      tx => !tx.category_id || genericCatIds.has(tx.category_id)
-    );
-
     let updatedTxCount = 0;
     const txMatches: Array<{ id: string; categoryName: string; reason: string }> = [];
 
-    for (const tx of txToProcess) {
+    for (const tx of allAccountTx ?? []) {
       const match = predictCategory(
         {
           description: tx.description,
@@ -125,8 +125,20 @@ export async function POST(req: NextRequest) {
         categories,
       );
 
-      // Si encuentra coincidencia específica y distinta a la que tenía
-      if (match && match.categoryId !== tx.category_id) {
+      if (!match || match.categoryId === tx.category_id) continue;
+
+      // Actualizamos si:
+      // - La transacción no tenía categoría asignada
+      // - Tenía categoría genérica (ej: "Otros gastos")
+      // - El match proviene de un patrón aprendido de una asignación del usuario (high o medium),
+      //   lo cual tiene prioridad sobre categorías automáticas anteriores.
+      const shouldUpdate =
+        !tx.category_id ||
+        genericCatIds.has(tx.category_id) ||
+        match.confidence === 'high' ||
+        match.confidence === 'medium';
+
+      if (shouldUpdate) {
         const { error } = await supabase
           .from('transactions')
           .update({ category_id: match.categoryId })
@@ -143,18 +155,28 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 4. Obtener consumos de tarjeta (sin categoría o genéricos)
-    const { data: allCardMvs } = await supabase
+    // 4. Obtener consumos de tarjeta
+    let cardQuery = supabase
       .from('card_movements')
       .select('id, merchant, category_id')
       .eq('user_id', user.id);
 
-    const mvsToProcess = (allCardMvs ?? []).filter(
-      mv => !mv.category_id || genericCatIds.has(mv.category_id)
-    );
+    if (account_id) {
+      const { data: cc } = await supabase
+        .from('credit_cards')
+        .select('id')
+        .eq('account_id', account_id)
+        .maybeSingle();
+
+      if (cc) {
+        cardQuery = cardQuery.eq('card_id', cc.id);
+      }
+    }
+
+    const { data: allCardMvs } = await cardQuery;
 
     let updatedCardCount = 0;
-    for (const mv of mvsToProcess) {
+    for (const mv of allCardMvs ?? []) {
       const match = predictCategory(
         {
           merchant: mv.merchant,
@@ -164,7 +186,15 @@ export async function POST(req: NextRequest) {
         categories,
       );
 
-      if (match && match.categoryId !== mv.category_id) {
+      if (!match || match.categoryId === mv.category_id) continue;
+
+      const shouldUpdate =
+        !mv.category_id ||
+        genericCatIds.has(mv.category_id) ||
+        match.confidence === 'high' ||
+        match.confidence === 'medium';
+
+      if (shouldUpdate) {
         const { error } = await supabase
           .from('card_movements')
           .update({ category_id: match.categoryId })

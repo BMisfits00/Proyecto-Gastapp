@@ -3,7 +3,8 @@
 // ============================================================================
 // 1. Aprende de asignaciones previas del usuario (patrones repetitivos mes a mes).
 // 2. Extrae raíces de comercios (ej: "DIA TIENDA 344" -> "DIA") y CUITs de transferencias.
-// 3. Aplica reglas heurísticas de palabras clave para banca argentina y tarjetas.
+// 3. Aplica similitud difusa (fuzzy/tokens/substrings) para asociar ítems iguales o similares.
+// 4. Aplica reglas heurísticas de palabras clave para banca argentina y tarjetas.
 // ============================================================================
 
 export interface CategoryRef {
@@ -12,7 +13,19 @@ export interface CategoryRef {
   type: 'income' | 'expense';
 }
 
+export interface LearnedPattern {
+  raw: string;
+  clean: string;
+  tokens: string[];
+  cuit: string | null;
+  categoryId: string;
+  categoryName: string;
+  type: 'income' | 'expense';
+}
+
 export interface CategorizationKnowledge {
+  // Lista de patrones aprendidos directamente de las asignaciones manuales del usuario
+  learnedPatterns: LearnedPattern[];
   // Mapa de texto exacto limpio -> category_id
   exactMap: Map<string, string>;
   // Mapa de CUIT extraído de transferencias -> category_id (mantiene el patrón entre meses)
@@ -78,6 +91,79 @@ export function extractCleanMerchantOrConcept(text: string | null | undefined): 
   str = str.replace(/\b\d+\b/g, '');
 
   return str.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Extrae tokens significativos (palabras >= 3 caracteres, ignorando números y stop words bancarias).
+ */
+export function extractSignificantTokens(text: string | null | undefined): string[] {
+  if (!text) return [];
+  const clean = extractCleanMerchantOrConcept(text);
+  const stopWords = new Set([
+    'de', 'la', 'el', 'los', 'las', 'en', 'por', 'con', 'para', 'del', 'al',
+    'srl', 'sa', 'sas', 'cia', 'sh', 'cta', 'ctas', 'caja', 'ahorro', 'cajas',
+    'pago', 'pagos', 'debito', 'credito', 'tarjeta', 'transf', 'transferencia',
+  ]);
+
+  return clean
+    .split(/\s+/)
+    .map(t => t.trim())
+    .filter(t => t.length >= 3 && !/^\d+$/.test(t) && !stopWords.has(t));
+}
+
+/**
+ * Coeficiente de similitud de Sørensen-Dice entre dos cadenas (0 a 1).
+ */
+export function diceSimilarity(a: string, b: string): number {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const sA = a.replace(/\s+/g, '');
+  const sB = b.replace(/\s+/g, '');
+  if (sA.length < 2 || sB.length < 2) return sA === sB ? 1 : 0;
+
+  const getBigrams = (str: string) => {
+    const bigrams = new Map<string, number>();
+    for (let i = 0; i < str.length - 1; i++) {
+      const bg = str.slice(i, i + 2);
+      bigrams.set(bg, (bigrams.get(bg) || 0) + 1);
+    }
+    return bigrams;
+  };
+
+  const bgA = getBigrams(sA);
+  const bgB = getBigrams(sB);
+  let intersection = 0;
+
+  for (const [bg, count] of bgA.entries()) {
+    if (bgB.has(bg)) {
+      intersection += Math.min(count, bgB.get(bg)!);
+    }
+  }
+
+  const totalA = Array.from(bgA.values()).reduce((sum, n) => sum + n, 0);
+  const totalB = Array.from(bgB.values()).reduce((sum, n) => sum + n, 0);
+
+  return (2 * intersection) / (totalA + totalB);
+}
+
+/**
+ * Compara dos listas de tokens significativos y calcula su grado de superposición.
+ */
+export function tokenOverlapScore(tokensA: string[], tokensB: string[]): { score: number; shared: string[] } {
+  if (tokensA.length === 0 || tokensB.length === 0) return { score: 0, shared: [] };
+
+  const setB = new Set(tokensB);
+  const shared = tokensA.filter(t => setB.has(t));
+  const union = new Set([...tokensA, ...tokensB]);
+
+  const minLen = Math.min(tokensA.length, tokensB.length);
+  const containment = shared.length / minLen;
+  const jaccard = shared.length / union.size;
+
+  // Si contiene todos los términos clave de la cadena más corta
+  const score = Math.max(jaccard, containment >= 1 && minLen >= 1 ? 0.85 : 0);
+
+  return { score, shared };
 }
 
 // ─── Diccionario de Palabras Clave (Banca Argentina & Tarjetas) ───────────────
@@ -235,38 +321,82 @@ export function buildKnowledgeBase(
   const cuitMap = new Map<string, string>();
   const tokenMap = new Map<string, string>();
   const categoryByNameAndType = new Map<string, string>();
+  const categoryById = new Map<string, CategoryRef>();
+  const learnedPatterns: LearnedPattern[] = [];
 
   // Indexar categorías
   for (const cat of categories) {
     categoryByNameAndType.set(`${normalizeText(cat.name)}_${cat.type}`, cat.id);
+    categoryById.set(cat.id, cat);
   }
 
-  // 1. Aprender de transacciones de cuenta
+  // Identificar categorías genéricas (estas NO deben aprenderse como preferencia de usuario)
+  const genericCatIds = new Set(
+    categories
+      .filter(c => {
+        const n = normalizeText(c.name);
+        return n === 'otros gastos' || n === 'otros ingresos' || n === 'varios' || n === 'sin categoria';
+      })
+      .map(c => c.id)
+  );
+
+  // 1. Aprender de transacciones de cuenta asignadas por el usuario
   for (const tx of historicalTransactions) {
     if (!tx.category_id || !tx.description) continue;
+    if (genericCatIds.has(tx.category_id)) continue; // Ignorar genéricas
+
+    const cat = categoryById.get(tx.category_id);
+    if (!cat) continue;
+
     const norm = normalizeText(tx.description);
-    if (norm) exactMap.set(norm, tx.category_id);
-
-    // CUIT
+    const clean = extractCleanMerchantOrConcept(tx.description);
     const cuit = extractCuit(tx.description);
-    if (cuit) cuitMap.set(cuit, tx.category_id);
+    const tokens = extractSignificantTokens(clean);
 
-    // Raíz
-    const root = extractCleanMerchantOrConcept(tx.description);
-    if (root && root.length >= 3) tokenMap.set(root, tx.category_id);
+    if (norm) exactMap.set(norm, tx.category_id);
+    if (cuit) cuitMap.set(cuit, tx.category_id);
+    if (clean && clean.length >= 3) tokenMap.set(clean, tx.category_id);
+
+    learnedPatterns.push({
+      raw: norm,
+      clean,
+      tokens,
+      cuit,
+      categoryId: cat.id,
+      categoryName: cat.name,
+      type: tx.type === 'income' ? 'income' : 'expense',
+    });
   }
 
-  // 2. Aprender de consumos de tarjeta
+  // 2. Aprender de consumos de tarjeta asignados por el usuario
   for (const mv of historicalCardMovements) {
     if (!mv.category_id || !mv.merchant) continue;
-    const norm = normalizeText(mv.merchant);
-    if (norm) exactMap.set(norm, mv.category_id);
+    if (genericCatIds.has(mv.category_id)) continue; // Ignorar genéricas
 
-    const root = extractCleanMerchantOrConcept(mv.merchant);
-    if (root && root.length >= 3) tokenMap.set(root, mv.category_id);
+    const cat = categoryById.get(mv.category_id);
+    if (!cat) continue;
+
+    const norm = normalizeText(mv.merchant);
+    const clean = extractCleanMerchantOrConcept(mv.merchant);
+    const cuit = extractCuit(mv.merchant);
+    const tokens = extractSignificantTokens(clean);
+
+    if (norm) exactMap.set(norm, mv.category_id);
+    if (cuit) cuitMap.set(cuit, mv.category_id);
+    if (clean && clean.length >= 3) tokenMap.set(clean, mv.category_id);
+
+    learnedPatterns.push({
+      raw: norm,
+      clean,
+      tokens,
+      cuit,
+      categoryId: cat.id,
+      categoryName: cat.name,
+      type: 'expense',
+    });
   }
 
-  return { exactMap, cuitMap, tokenMap, categoryByNameAndType };
+  return { learnedPatterns, exactMap, cuitMap, tokenMap, categoryByNameAndType };
 }
 
 // ─── Predictor de Categoría ──────────────────────────────────────────────────
@@ -291,54 +421,117 @@ export function predictCategory(
   const fullText = `${item.description ?? ''} ${item.detail ?? ''} ${item.merchant ?? ''}`.trim();
   const normFull = normalizeText(fullText);
   const normDesc = normalizeText(item.description ?? item.merchant ?? '');
+  const cleanCandidate = extractCleanMerchantOrConcept(normDesc || normFull);
+  const candidateTokens = extractSignificantTokens(cleanCandidate);
+  const candidateCuit = extractCuit(fullText);
 
-  if (!normFull) return null;
+  if (!normFull && !normDesc) return null;
 
-  // 1. Coincidencia Histórica Exacta
-  if (knowledge.exactMap.has(normDesc)) {
-    const id = knowledge.exactMap.get(normDesc)!;
-    const cat = categories.find(c => c.id === id);
-    if (cat) {
-      return {
-        categoryId: id,
-        categoryName: cat.name,
-        confidence: 'high',
-        reason: 'Coincidencia exacta con movimiento previo',
-      };
+  // ==========================================================================
+  // FASE 1: APRENDIZAJE DE ASIGNACIONES DEL USUARIO (Patrones aprendidos)
+  // ==========================================================================
+  if (knowledge.learnedPatterns && knowledge.learnedPatterns.length > 0) {
+    const applicablePatterns = knowledge.learnedPatterns.filter(p => p.type === item.type);
+
+    // 1.1 Coincidencia Exacta con Ítem Previamente Categorizado
+    for (const pattern of applicablePatterns) {
+      if (
+        (normDesc && normDesc === pattern.raw) ||
+        (cleanCandidate && cleanCandidate === pattern.clean)
+      ) {
+        return {
+          categoryId: pattern.categoryId,
+          categoryName: pattern.categoryName,
+          confidence: 'high',
+          reason: `Coincidencia exacta con asignación previa: "${pattern.clean || pattern.raw}"`,
+        };
+      }
+    }
+
+    // 1.2 Coincidencia por CUIT
+    if (candidateCuit) {
+      for (const pattern of applicablePatterns) {
+        if (pattern.cuit && pattern.cuit === candidateCuit) {
+          return {
+            categoryId: pattern.categoryId,
+            categoryName: pattern.categoryName,
+            confidence: 'high',
+            reason: `Mismo CUIT ${candidateCuit} asignado por el usuario a ${pattern.categoryName}`,
+          };
+        }
+      }
+    }
+
+    // 1.3 Coincidencia por Contención de Subcadena (Ítems similares / ramas de comercio)
+    // Ej: "BURGER KING ALTO PALERMO" contiene "BURGER KING"
+    // Ej: "SUPERMERCADOS DIA TIENDA 520" contiene "DIA TIENDA"
+    if (cleanCandidate && cleanCandidate.length >= 4) {
+      for (const pattern of applicablePatterns) {
+        if (pattern.clean && pattern.clean.length >= 4) {
+          if (
+            cleanCandidate.includes(pattern.clean) ||
+            pattern.clean.includes(cleanCandidate)
+          ) {
+            return {
+              categoryId: pattern.categoryId,
+              categoryName: pattern.categoryName,
+              confidence: 'high',
+              reason: `Contiene concepto asignado previamente: "${pattern.clean}"`,
+            };
+          }
+        }
+      }
+    }
+
+    // 1.4 Coincidencia por Superposición de Tokens Significativos (Palabras Clave Compartidas)
+    // Ej: "TRANSFERENCIA A MARIA PEREZ 12345" vs "TRANSFERENCIA A MARIA PEREZ"
+    if (candidateTokens.length > 0) {
+      let bestPattern: LearnedPattern | null = null;
+      let bestScore = 0;
+      let bestShared: string[] = [];
+
+      for (const pattern of applicablePatterns) {
+        if (pattern.tokens.length === 0) continue;
+        const { score, shared } = tokenOverlapScore(candidateTokens, pattern.tokens);
+        if (score > bestScore) {
+          bestScore = score;
+          bestPattern = pattern;
+          bestShared = shared;
+        }
+      }
+
+      // Si comparten tokens relevantes con alta similitud
+      if (bestPattern && (bestScore >= 0.65 || (bestShared.length >= 2 && bestScore >= 0.5))) {
+        return {
+          categoryId: bestPattern.categoryId,
+          categoryName: bestPattern.categoryName,
+          confidence: 'medium',
+          reason: `Concepto similar a asignación previa ("${bestShared.join(' ')}")`,
+        };
+      }
+    }
+
+    // 1.5 Similitud de Texto Difusa (Dice similarity >= 0.82)
+    if (cleanCandidate && cleanCandidate.length >= 4) {
+      for (const pattern of applicablePatterns) {
+        if (pattern.clean && pattern.clean.length >= 4) {
+          const sim = diceSimilarity(cleanCandidate, pattern.clean);
+          if (sim >= 0.82) {
+            return {
+              categoryId: pattern.categoryId,
+              categoryName: pattern.categoryName,
+              confidence: 'medium',
+              reason: `Similitud textual (${Math.round(sim * 100)}%) con "${pattern.clean}"`,
+            };
+          }
+        }
+      }
     }
   }
 
-  // 2. Coincidencia por CUIT (reincidencia mensual de transferencias al mismo destinatario)
-  const cuit = extractCuit(fullText);
-  if (cuit && knowledge.cuitMap.has(cuit)) {
-    const id = knowledge.cuitMap.get(cuit)!;
-    const cat = categories.find(c => c.id === id);
-    if (cat) {
-      return {
-        categoryId: id,
-        categoryName: cat.name,
-        confidence: 'high',
-        reason: `Reincidencia por CUIT ${cuit}`,
-      };
-    }
-  }
-
-  // 3. Coincidencia por Raíz del Comercio / Concepto
-  const root = extractCleanMerchantOrConcept(normDesc);
-  if (root && root.length >= 3 && knowledge.tokenMap.has(root)) {
-    const id = knowledge.tokenMap.get(root)!;
-    const cat = categories.find(c => c.id === id);
-    if (cat) {
-      return {
-        categoryId: id,
-        categoryName: cat.name,
-        confidence: 'medium',
-        reason: `Patrón de comercio recurrente ("${root}")`,
-      };
-    }
-  }
-
-  // 4. Reglas Heurísticas por Palabras Clave
+  // ==========================================================================
+  // FASE 2: REGLAS HEURÍSTICAS POR PALABRAS CLAVE DEL SISTEMA
+  // ==========================================================================
   const rules = item.type === 'income' ? INCOME_KEYWORD_RULES : EXPENSE_KEYWORD_RULES;
 
   for (const rule of rules) {
@@ -347,7 +540,7 @@ export function predictCategory(
         let catId = knowledge.categoryByNameAndType.get(`${normalizeText(rule.categoryName)}_${item.type}`);
         let finalCatName = rule.categoryName;
 
-        // Si la regla busca 'Suscripciones' pero aún no existe en la base de datos, fallback temporal a 'Ocio'
+        // Fallback temporal si no existe 'Suscripciones'
         if (!catId && rule.categoryName === 'Suscripciones') {
           catId = knowledge.categoryByNameAndType.get(`ocio_${item.type}`);
           finalCatName = 'Ocio';
@@ -365,7 +558,9 @@ export function predictCategory(
     }
   }
 
-  // 5. Fallback a categoría genérica si existe
+  // ==========================================================================
+  // FASE 3: CATEGORÍA POR DEFECTO (GENÉRICA)
+  // ==========================================================================
   const defaultName = item.type === 'income' ? 'Otros ingresos' : 'Otros gastos';
   const defaultCatId = knowledge.categoryByNameAndType.get(`${normalizeText(defaultName)}_${item.type}`);
   if (defaultCatId) {

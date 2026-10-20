@@ -370,24 +370,61 @@ function YearMonthFilter({
   month,
   onYearChange,
   onMonthChange,
+  onRangeChange,
 }: {
   items: { date: string }[];
   year: string;
   month: string;
   onYearChange: (y: string) => void;
   onMonthChange: (m: string) => void;
+  onRangeChange?: (r: DateRange) => void;
 }) {
   const years = uniqueYears(items);
   if (years.length === 0) return null;
 
   const selectCls = 'bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 font-medium focus:outline-none focus:border-blue-600 shadow-xs';
 
+  function handlePrev() {
+    onRangeChange?.(null);
+    let y = year ? parseInt(year, 10) : (years[0] ?? new Date().getFullYear());
+    let m = month ? parseInt(month, 10) : (new Date().getMonth() + 1);
+    m -= 1;
+    if (m < 1) {
+      m = 12;
+      y -= 1;
+    }
+    onYearChange(String(y));
+    onMonthChange(String(m));
+  }
+
+  function handleNext() {
+    onRangeChange?.(null);
+    let y = year ? parseInt(year, 10) : (years[0] ?? new Date().getFullYear());
+    let m = month ? parseInt(month, 10) : (new Date().getMonth() + 1);
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+    onYearChange(String(y));
+    onMonthChange(String(m));
+  }
+
   return (
-    <>
+    <div className="flex items-center gap-1.5">
+      <button
+        type="button"
+        onClick={handlePrev}
+        title="Período anterior (mes anterior)"
+        className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 shadow-xs transition-colors flex items-center justify-center shrink-0"
+      >
+        <ChevronLeft size={16} />
+      </button>
+
       <select
         title="Año"
         value={year}
-        onChange={e => { onYearChange(e.target.value); onMonthChange(''); }}
+        onChange={e => { onYearChange(e.target.value); onMonthChange(''); onRangeChange?.(null); }}
         className={selectCls}
       >
         <option value="">Año</option>
@@ -397,7 +434,7 @@ function YearMonthFilter({
       <select
         title="Mes"
         value={month}
-        onChange={e => onMonthChange(e.target.value)}
+        onChange={e => { onMonthChange(e.target.value); onRangeChange?.(null); }}
         className={selectCls}
       >
         <option value="">Mes</option>
@@ -407,7 +444,16 @@ function YearMonthFilter({
           </option>
         ))}
       </select>
-    </>
+
+      <button
+        type="button"
+        onClick={handleNext}
+        title="Período posterior (mes siguiente)"
+        className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 shadow-xs transition-colors flex items-center justify-center shrink-0"
+      >
+        <ChevronRight size={16} />
+      </button>
+    </div>
   );
 }
 
@@ -636,6 +682,9 @@ export default function AccountDetailPage() {
   const [cardMvs, setCardMvs]         = useState<CardMovement[]>([]);
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [tab, setTab]                 = useState<Tab>('balance');
+  const [filterYear, setFilterYear]   = useState('');
+  const [filterMonth, setFilterMonth] = useState('');
+  const [filterRange, setFilterRange] = useState<DateRange>(null);
   const [loading, setLoading]         = useState(true);
   const [syncState, setSyncState]     = useState<SyncState>('idle');
   const [syncMsg, setSyncMsg]         = useState('');
@@ -829,11 +878,31 @@ export default function AccountDetailPage() {
       </div>
 
       {/* Contenido */}
-      {tab === 'balance'     && <BalanceTab income={income} expenses={expenses} card={card} cardMvs={cardMvs} investments={investments} />}
+      {tab === 'balance'     && (
+        <BalanceTab
+          income={income}
+          expenses={expenses}
+          card={card}
+          cardMvs={cardMvs}
+          investments={investments}
+          year={filterYear}
+          month={filterMonth}
+          range={filterRange}
+          onYearChange={setFilterYear}
+          onMonthChange={setFilterMonth}
+          onRangeChange={setFilterRange}
+        />
+      )}
       {tab === 'income'      && (
         <IncomeTab
           transactions={income}
           accountName={account.name}
+          year={filterYear}
+          month={filterMonth}
+          range={filterRange}
+          onYearChange={setFilterYear}
+          onMonthChange={setFilterMonth}
+          onRangeChange={setFilterRange}
           onCategoryAssigned={(txId, cat) => {
             setIncome(prev => prev.map(t => {
               if (t.id !== txId) return t;
@@ -852,6 +921,12 @@ export default function AccountDetailPage() {
         <ExpenseTab
           transactions={expenses}
           accountName={account.name}
+          year={filterYear}
+          month={filterMonth}
+          range={filterRange}
+          onYearChange={setFilterYear}
+          onMonthChange={setFilterMonth}
+          onRangeChange={setFilterRange}
           onCategoryAssigned={(txId, cat) => {
             setExpenses(prev => prev.map(t => {
               if (t.id !== txId) return t;
@@ -871,6 +946,12 @@ export default function AccountDetailPage() {
           card={card}
           movements={cardMvs}
           accountId={id}
+          year={filterYear}
+          month={filterMonth}
+          range={filterRange}
+          onYearChange={setFilterYear}
+          onMonthChange={setFilterMonth}
+          onRangeChange={setFilterRange}
           onCategoryAssigned={(mvId, cat) => {
             setCardMvs(prev => prev.map(m => {
               if (m.id !== mvId) return m;
@@ -898,17 +979,25 @@ function BalanceTab({
   card,
   cardMvs,
   investments,
+  year,
+  month,
+  range,
+  onYearChange,
+  onMonthChange,
+  onRangeChange,
 }: {
   income: Transaction[];
   expenses: Transaction[];
   card: CreditCard | null;
   cardMvs: CardMovement[];
   investments: Investment[];
+  year: string;
+  month: string;
+  range: DateRange;
+  onYearChange: (y: string) => void;
+  onMonthChange: (m: string) => void;
+  onRangeChange: (r: DateRange) => void;
 }) {
-  const [range, setRange] = useState<DateRange>(null);
-  const [year, setYear]   = useState('');
-  const [month, setMonth] = useState('');
-
   const allTx = [...income, ...expenses];
   const afterYM_income  = applyYearMonth(income, year, month);
   const filteredIncome  = applyRangeFilter(afterYM_income, range);
@@ -948,8 +1037,15 @@ function BalanceTab({
     <div className="space-y-6">
       {/* Filtros */}
       <FilterBar>
-        <YearMonthFilter items={allTx} year={year} month={month} onYearChange={setYear} onMonthChange={setMonth} />
-        <DateRangePicker value={range} onChange={setRange} />
+        <YearMonthFilter
+          items={allTx}
+          year={year}
+          month={month}
+          onYearChange={onYearChange}
+          onMonthChange={onMonthChange}
+          onRangeChange={onRangeChange}
+        />
+        <DateRangePicker value={range} onChange={onRangeChange} />
       </FilterBar>
 
       {/* Tarjetas métricas comparativas de cabecera */}
@@ -1140,15 +1236,24 @@ function BalanceTab({
 function IncomeTab({
   transactions,
   accountName,
+  year,
+  month,
+  range,
+  onYearChange,
+  onMonthChange,
+  onRangeChange,
   onCategoryAssigned,
 }: {
   transactions: Transaction[];
   accountName?: string;
+  year: string;
+  month: string;
+  range: DateRange;
+  onYearChange: (y: string) => void;
+  onMonthChange: (m: string) => void;
+  onRangeChange: (r: DateRange) => void;
   onCategoryAssigned?: (txId: string, cat: CategoryOption | null) => void;
 }) {
-  const [range, setRange]         = useState<DateRange>(null);
-  const [year, setYear]           = useState('');
-  const [month, setMonth]         = useState('');
   const [catFilter, setCatFilter] = useState('');
   const [allCats, setAllCats]     = useState<CategoryOption[]>([]);
 
@@ -1184,8 +1289,15 @@ function IncomeTab({
   return (
     <div className="space-y-4">
       <FilterBar>
-        <YearMonthFilter items={transactions} year={year} month={month} onYearChange={setYear} onMonthChange={setMonth} />
-        <DateRangePicker value={range} onChange={setRange} />
+        <YearMonthFilter
+          items={transactions}
+          year={year}
+          month={month}
+          onYearChange={onYearChange}
+          onMonthChange={onMonthChange}
+          onRangeChange={onRangeChange}
+        />
+        <DateRangePicker value={range} onChange={onRangeChange} />
         <CategoryDropdown categories={filterCats} selected={catFilter} onSelect={setCatFilter} />
       </FilterBar>
       <SummaryCard amount={total} label="Total Ingresos Acreditados" color="text-emerald-600" bg="bg-emerald-50" icon={<TrendingUp size={22} />} />
@@ -1215,15 +1327,24 @@ function IncomeTab({
 function ExpenseTab({
   transactions,
   accountName,
+  year,
+  month,
+  range,
+  onYearChange,
+  onMonthChange,
+  onRangeChange,
   onCategoryAssigned,
 }: {
   transactions: Transaction[];
   accountName?: string;
+  year: string;
+  month: string;
+  range: DateRange;
+  onYearChange: (y: string) => void;
+  onMonthChange: (m: string) => void;
+  onRangeChange: (r: DateRange) => void;
   onCategoryAssigned?: (txId: string, cat: CategoryOption | null) => void;
 }) {
-  const [range, setRange]         = useState<DateRange>(null);
-  const [year, setYear]           = useState('');
-  const [month, setMonth]         = useState('');
   const [catFilter, setCatFilter] = useState('');
   const [allCats, setAllCats]     = useState<CategoryOption[]>([]);
 
@@ -1259,8 +1380,15 @@ function ExpenseTab({
   return (
     <div className="space-y-4">
       <FilterBar>
-        <YearMonthFilter items={transactions} year={year} month={month} onYearChange={setYear} onMonthChange={setMonth} />
-        <DateRangePicker value={range} onChange={setRange} />
+        <YearMonthFilter
+          items={transactions}
+          year={year}
+          month={month}
+          onYearChange={onYearChange}
+          onMonthChange={onMonthChange}
+          onRangeChange={onRangeChange}
+        />
+        <DateRangePicker value={range} onChange={onRangeChange} />
         <CategoryDropdown categories={filterCats} selected={catFilter} onSelect={setCatFilter} />
       </FilterBar>
       <SummaryCard amount={total} label="Total Gastos Debitado" color="text-rose-600" bg="bg-rose-50" icon={<TrendingDown size={22} />} />
@@ -1291,16 +1419,25 @@ function CardTab({
   card,
   movements,
   accountId,
+  year,
+  month,
+  range,
+  onYearChange,
+  onMonthChange,
+  onRangeChange,
   onCategoryAssigned,
 }: {
   card: CreditCard | null;
   movements: CardMovement[];
   accountId: string;
+  year: string;
+  month: string;
+  range: DateRange;
+  onYearChange: (y: string) => void;
+  onMonthChange: (m: string) => void;
+  onRangeChange: (r: DateRange) => void;
   onCategoryAssigned?: (movementId: string, cat: CategoryOption | null) => void;
 }) {
-  const [range, setRange]           = useState<DateRange>(null);
-  const [year, setYear]             = useState('');
-  const [month, setMonth]           = useState('');
   const [catFilter, setCatFilter]   = useState('');
   const [allCats, setAllCats]       = useState<CategoryOption[]>([]);
   const [catOverrides, setCatOverrides] = useState<Record<string, CategoryOption | null>>({});
@@ -1393,10 +1530,11 @@ function CardTab({
             items={movements}
             year={year}
             month={month}
-            onYearChange={v => { setYear(v); setPage(0); }}
-            onMonthChange={v => { setMonth(v); setPage(0); }}
+            onYearChange={v => { onYearChange(v); setPage(0); }}
+            onMonthChange={v => { onMonthChange(v); setPage(0); }}
+            onRangeChange={v => { onRangeChange(v); setPage(0); }}
           />
-          <DateRangePicker value={range} onChange={v => { setRange(v); setPage(0); }} />
+          <DateRangePicker value={range} onChange={v => { onRangeChange(v); setPage(0); }} />
           <CategoryDropdown categories={allCats} selected={catFilter} onSelect={v => { setCatFilter(v); setPage(0); }} />
         </FilterBar>
       )}
@@ -1694,9 +1832,9 @@ function CategoryBreakdown({
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
         {/* Gráfico circular (Donut) */}
-        <div className="lg:col-span-5 flex flex-col items-center justify-center relative min-h-[240px]">
-          <div className="w-full h-60 relative flex items-center justify-center">
-            <ResponsiveContainer width="100%" height="100%">
+        <div className="lg:col-span-5 flex flex-col items-center justify-center relative min-h-[240px] min-w-0">
+          <div className="w-full h-60 min-w-0 relative flex items-center justify-center">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
               <PieChart>
                 <Pie
                   data={items}
