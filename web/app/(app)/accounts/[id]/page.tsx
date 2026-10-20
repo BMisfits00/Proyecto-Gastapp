@@ -8,9 +8,10 @@ import {
   ArrowLeft, TrendingUp, TrendingDown, CreditCard as CreditCardIcon,
   Landmark, X, RefreshCw, CheckCircle, AlertCircle,
   ChevronLeft, ChevronRight, Calendar, Scale, Sparkles,
-  Info,
+  Info, Search,
 } from 'lucide-react';
 import { ItemDetailModal } from './ItemDetailModal';
+import { normalizeText } from '@/lib/categorizer';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   PieChart, Pie, Cell,
@@ -704,6 +705,7 @@ export default function AccountDetailPage() {
   const [filterYear, setFilterYear]   = useState('');
   const [filterMonth, setFilterMonth] = useState('');
   const [filterRange, setFilterRange] = useState<DateRange>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading]         = useState(true);
   const [syncState, setSyncState]     = useState<SyncState>('idle');
   const [syncMsg, setSyncMsg]         = useState('');
@@ -910,6 +912,8 @@ export default function AccountDetailPage() {
           onYearChange={setFilterYear}
           onMonthChange={setFilterMonth}
           onRangeChange={setFilterRange}
+          search={searchQuery}
+          onSearchChange={setSearchQuery}
         />
       )}
       {tab === 'income'      && (
@@ -922,6 +926,8 @@ export default function AccountDetailPage() {
           onYearChange={setFilterYear}
           onMonthChange={setFilterMonth}
           onRangeChange={setFilterRange}
+          search={searchQuery}
+          onSearchChange={setSearchQuery}
           onCategoryAssigned={(txId, cat) => {
             setIncome(prev => prev.map(t => {
               if (t.id !== txId) return t;
@@ -946,6 +952,8 @@ export default function AccountDetailPage() {
           onYearChange={setFilterYear}
           onMonthChange={setFilterMonth}
           onRangeChange={setFilterRange}
+          search={searchQuery}
+          onSearchChange={setSearchQuery}
           onCategoryAssigned={(txId, cat) => {
             setExpenses(prev => prev.map(t => {
               if (t.id !== txId) return t;
@@ -971,6 +979,8 @@ export default function AccountDetailPage() {
           onYearChange={setFilterYear}
           onMonthChange={setFilterMonth}
           onRangeChange={setFilterRange}
+          search={searchQuery}
+          onSearchChange={setSearchQuery}
           onCategoryAssigned={(mvId, cat) => {
             setCardMvs(prev => prev.map(m => {
               if (m.id !== mvId) return m;
@@ -1004,6 +1014,8 @@ function BalanceTab({
   onYearChange,
   onMonthChange,
   onRangeChange,
+  search,
+  onSearchChange,
 }: {
   income: Transaction[];
   expenses: Transaction[];
@@ -1016,6 +1028,8 @@ function BalanceTab({
   onYearChange: (y: string) => void;
   onMonthChange: (m: string) => void;
   onRangeChange: (r: DateRange) => void;
+  search: string;
+  onSearchChange: (s: string) => void;
 }) {
   const allTx = [...income, ...expenses];
   const afterYM_income  = applyYearMonth(income, year, month);
@@ -1027,12 +1041,35 @@ function BalanceTab({
   const afterYM_card    = applyYearMonth(cardMvs, year, month);
   const filteredCardMvs = applyRangeFilter(afterYM_card, range);
 
-  const totalIncome  = filteredIncome.reduce((s, t) => s + Number(t.amount), 0);
-  const totalExpense = filteredExpense.reduce((s, t) => s + Number(t.amount), 0);
+  const q = search.trim();
+  const searchedIncome = q
+    ? filteredIncome.filter(t =>
+        normalizeText(t.description).includes(normalizeText(q)) ||
+        normalizeText(t.category?.name).includes(normalizeText(q))
+      )
+    : filteredIncome;
+
+  const searchedExpense = q
+    ? filteredExpense.filter(t =>
+        normalizeText(t.description).includes(normalizeText(q)) ||
+        normalizeText(t.category?.name).includes(normalizeText(q))
+      )
+    : filteredExpense;
+
+  const searchedCardMvs = q
+    ? filteredCardMvs.filter(m =>
+        normalizeText(m.merchant).includes(normalizeText(q)) ||
+        normalizeText(m.installment).includes(normalizeText(q)) ||
+        normalizeText(m.category?.name).includes(normalizeText(q))
+      )
+    : filteredCardMvs;
+
+  const totalIncome  = searchedIncome.reduce((s, t) => s + Number(t.amount), 0);
+  const totalExpense = searchedExpense.reduce((s, t) => s + Number(t.amount), 0);
   const netFlow      = totalIncome - totalExpense;
 
-  const cardTotalARS = filteredCardMvs.filter(m => m.currency === 'ARS').reduce((s, m) => s + Number(m.amount), 0);
-  const cardTotalUSD = filteredCardMvs.filter(m => m.currency === 'USD').reduce((s, m) => s + Number(m.amount), 0);
+  const cardTotalARS = searchedCardMvs.filter(m => m.currency === 'ARS').reduce((s, m) => s + Number(m.amount), 0);
+  const cardTotalUSD = searchedCardMvs.filter(m => m.currency === 'USD').reduce((s, m) => s + Number(m.amount), 0);
 
   const totalCapital = investments.reduce((s, i) => s + Number(i.initial_amount), 0);
   const totalGain    = investments.reduce((s, i) => s + Number(i.gain_amount ?? 0), 0);
@@ -1049,8 +1086,8 @@ function BalanceTab({
   });
   const chartData = Object.entries(monthlyMap).sort(([a], [b]) => a.localeCompare(b)).slice(-6).map(([, v]) => v);
 
-  const incomeByCat  = groupByCategory(filteredIncome);
-  const expenseByCat = groupByCategory(filteredExpense);
+  const incomeByCat  = groupByCategory(searchedIncome);
+  const expenseByCat = groupByCategory(searchedExpense);
 
   return (
     <div className="space-y-6">
@@ -1065,6 +1102,7 @@ function BalanceTab({
           onRangeChange={onRangeChange}
         />
         <DateRangePicker value={range} onChange={onRangeChange} />
+        <SearchInput value={search} onChange={onSearchChange} placeholder="Buscar en balance…" />
       </FilterBar>
 
       {/* Tarjetas métricas comparativas de cabecera */}
@@ -1261,6 +1299,8 @@ function IncomeTab({
   onYearChange,
   onMonthChange,
   onRangeChange,
+  search,
+  onSearchChange,
   onCategoryAssigned,
 }: {
   transactions: Transaction[];
@@ -1271,6 +1311,8 @@ function IncomeTab({
   onYearChange: (y: string) => void;
   onMonthChange: (m: string) => void;
   onRangeChange: (r: DateRange) => void;
+  search: string;
+  onSearchChange: (s: string) => void;
   onCategoryAssigned?: (txId: string, cat: CategoryOption | null) => void;
 }) {
   const [catFilter, setCatFilter] = useState('');
@@ -1297,9 +1339,19 @@ function IncomeTab({
 
   const afterYM    = applyYearMonth(transactions, year, month);
   const afterRange = applyRangeFilter(afterYM, range);
-  const filtered   = catFilter
+  const afterCat   = catFilter
     ? afterRange.filter(t => (t.category?.id ?? 'sin-categoria') === catFilter)
     : afterRange;
+  const q = search.trim();
+  const filtered   = q
+    ? afterCat.filter(t => {
+        const query = normalizeText(q);
+        return (
+          normalizeText(t.description).includes(query) ||
+          normalizeText(t.category?.name).includes(query)
+        );
+      })
+    : afterCat;
 
   const total      = filtered.reduce((s, t) => s + Number(t.amount), 0);
   const byCategory = groupByCategory(filtered);
@@ -1318,6 +1370,7 @@ function IncomeTab({
         />
         <DateRangePicker value={range} onChange={onRangeChange} />
         <CategoryDropdown categories={filterCats} selected={catFilter} onSelect={setCatFilter} />
+        <SearchInput value={search} onChange={onSearchChange} placeholder="Buscar en ingresos…" />
       </FilterBar>
       <SummaryCard amount={total} label="Total Ingresos Acreditados" color="text-emerald-600" bg="bg-emerald-50" icon={<TrendingUp size={22} />} />
       {byCategory.length > 0 && (
@@ -1352,6 +1405,8 @@ function ExpenseTab({
   onYearChange,
   onMonthChange,
   onRangeChange,
+  search,
+  onSearchChange,
   onCategoryAssigned,
 }: {
   transactions: Transaction[];
@@ -1362,6 +1417,8 @@ function ExpenseTab({
   onYearChange: (y: string) => void;
   onMonthChange: (m: string) => void;
   onRangeChange: (r: DateRange) => void;
+  search: string;
+  onSearchChange: (s: string) => void;
   onCategoryAssigned?: (txId: string, cat: CategoryOption | null) => void;
 }) {
   const [catFilter, setCatFilter] = useState('');
@@ -1388,9 +1445,19 @@ function ExpenseTab({
 
   const afterYM    = applyYearMonth(transactions, year, month);
   const afterRange = applyRangeFilter(afterYM, range);
-  const filtered   = catFilter
+  const afterCat   = catFilter
     ? afterRange.filter(t => (t.category?.id ?? 'sin-categoria') === catFilter)
     : afterRange;
+  const q = search.trim();
+  const filtered   = q
+    ? afterCat.filter(t => {
+        const query = normalizeText(q);
+        return (
+          normalizeText(t.description).includes(query) ||
+          normalizeText(t.category?.name).includes(query)
+        );
+      })
+    : afterCat;
 
   const total      = filtered.reduce((s, t) => s + Number(t.amount), 0);
   const byCategory = groupByCategory(filtered);
@@ -1409,6 +1476,7 @@ function ExpenseTab({
         />
         <DateRangePicker value={range} onChange={onRangeChange} />
         <CategoryDropdown categories={filterCats} selected={catFilter} onSelect={setCatFilter} />
+        <SearchInput value={search} onChange={onSearchChange} placeholder="Buscar en gastos…" />
       </FilterBar>
       <SummaryCard amount={total} label="Total Gastos Debitado" color="text-rose-600" bg="bg-rose-50" icon={<TrendingDown size={22} />} />
       {byCategory.length > 0 && (
@@ -1444,6 +1512,8 @@ function CardTab({
   onYearChange,
   onMonthChange,
   onRangeChange,
+  search,
+  onSearchChange,
   onCategoryAssigned,
 }: {
   card: CreditCard | null;
@@ -1455,6 +1525,8 @@ function CardTab({
   onYearChange: (y: string) => void;
   onMonthChange: (m: string) => void;
   onRangeChange: (r: DateRange) => void;
+  search: string;
+  onSearchChange: (s: string) => void;
   onCategoryAssigned?: (movementId: string, cat: CategoryOption | null) => void;
 }) {
   const [catFilter, setCatFilter]   = useState('');
@@ -1522,9 +1594,21 @@ function CardTab({
 
   const afterYM    = applyYearMonth(movements, year, month);
   const afterRange = applyRangeFilter(afterYM, range);
-  const filtered   = catFilter
+  const afterCat   = catFilter
     ? afterRange.filter(m => (getCategory(m)?.id ?? 'sin-categoria') === catFilter)
     : afterRange;
+  const q = search.trim();
+  const filtered   = q
+    ? afterCat.filter(m => {
+        const query = normalizeText(q);
+        return (
+          normalizeText(m.merchant).includes(query) ||
+          normalizeText(m.installment).includes(query) ||
+          normalizeText(getCategory(m)?.name).includes(query)
+        );
+      })
+    : afterCat;
+
   const totalARS   = filtered.filter(m => m.currency === 'ARS').reduce((s, m) => s + Number(m.amount), 0);
   const totalUSD   = filtered.filter(m => m.currency === 'USD').reduce((s, m) => s + Number(m.amount), 0);
   const pagedMvs   = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -1555,6 +1639,7 @@ function CardTab({
           />
           <DateRangePicker value={range} onChange={v => { onRangeChange(v); setPage(0); }} />
           <CategoryDropdown categories={allCats} selected={catFilter} onSelect={v => { setCatFilter(v); setPage(0); }} />
+          <SearchInput value={search} onChange={v => { onSearchChange(v); setPage(0); }} placeholder="Buscar comercio…" />
         </FilterBar>
       )}
 
@@ -1774,6 +1859,39 @@ function FilterBar({ children }: { children: React.ReactNode }) {
       <div className="flex flex-wrap items-center gap-3">
         {children}
       </div>
+    </div>
+  );
+}
+
+function SearchInput({
+  value,
+  onChange,
+  placeholder = 'Buscar por comercio, concepto...',
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div className="relative flex-1 min-w-[200px] max-w-sm">
+      <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+      <input
+        type="text"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-8 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-blue-600 shadow-xs transition-colors"
+      />
+      {value && (
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-md transition-colors"
+          title="Borrar búsqueda"
+        >
+          <X size={14} />
+        </button>
+      )}
     </div>
   );
 }
