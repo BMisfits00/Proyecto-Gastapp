@@ -291,9 +291,6 @@ async function scrapeMovements(page, store) {
     return { accounts: [], primaryMovements: [] };
   }
 }
-    return { accounts: [], primaryMovements: [] };
-  }
-}
 
 // ─── Tarjeta de crédito ──────────────────────────────────────────────────────
 
