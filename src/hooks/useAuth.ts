@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { authService } from '../services/authService';
+import { biometricService } from '../services/biometricService';
 import { useAuthContext } from '../contexts/AuthContext';
 
 export function useAuth() {
@@ -12,8 +13,11 @@ export function useAuth() {
     setError(null);
     try {
       await authService.signIn(email, password);
+      // Guardar credenciales para futuros ingresos biométricos
+      await biometricService.saveCredentials(email, password);
     } catch (e: any) {
       setError(e.message ?? 'Error al iniciar sesión');
+      throw e;
     } finally {
       setAuthLoading(false);
     }
@@ -26,6 +30,7 @@ export function useAuth() {
       await authService.signUp(email, password, fullName);
     } catch (e: any) {
       setError(e.message ?? 'Error al registrarse');
+      throw e;
     } finally {
       setAuthLoading(false);
     }

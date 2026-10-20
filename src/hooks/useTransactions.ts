@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { transactionService } from '../services/transactionService';
 import { useAuthContext } from '../contexts/AuthContext';
 import { CreateTransactionInput } from '../types';
@@ -26,6 +26,21 @@ export function useAllTransactions(page = 0) {
   });
 }
 
+// Hook de paginación infinita para el feed de movimientos
+export function useInfiniteTransactions(pageSize = 20) {
+  const { user } = useAuthContext();
+
+  return useInfiniteQuery({
+    queryKey: ['transactions', 'infinite', user?.id],
+    queryFn: ({ pageParam = 0 }) => transactionService.getAll(user!.id, pageParam, pageSize),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => {
+      return lastPage.length === pageSize ? allPages.length : undefined;
+    },
+    enabled: !!user,
+  });
+}
+
 export function useLast6MonthsTransactions() {
   const { user } = useAuthContext();
 
@@ -43,6 +58,19 @@ export function useCreateTransaction() {
   return useMutation({
     mutationFn: (input: CreateTransactionInput) =>
       transactionService.create(user!.id, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+    },
+  });
+}
+
+export function useUpdateTransaction() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: Partial<CreateTransactionInput> }) =>
+      transactionService.update(id, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['accounts'] });

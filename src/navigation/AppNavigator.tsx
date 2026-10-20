@@ -5,6 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { DashboardScreen } from '../screens/dashboard/DashboardScreen';
 import { TransactionListScreen } from '../screens/transactions/TransactionListScreen';
 import { AddTransactionScreen } from '../screens/transactions/AddTransactionScreen';
+import { EditTransactionScreen } from '../screens/transactions/EditTransactionScreen';
 import { ReportsScreen } from '../screens/reports/ReportsScreen';
 import { AccountsScreen } from '../screens/accounts/AccountsScreen';
 import { AccountDetailScreen } from '../screens/accounts/AccountDetailScreen';
@@ -103,6 +104,14 @@ export function AppNavigator() {
       <Stack.Screen
         name="AddTransaction"
         component={AddTransactionScreen}
+        options={{
+          presentation: 'modal',
+          contentStyle: { backgroundColor: Colors.background },
+        }}
+      />
+      <Stack.Screen
+        name="EditTransaction"
+        component={EditTransactionScreen}
         options={{
           presentation: 'modal',
           contentStyle: { backgroundColor: Colors.background },

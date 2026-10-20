@@ -7,5 +7,10 @@
       "@/*": ["src/*"],
       "@gastapp/shared": ["packages/shared/index.ts"]
     }
-  }
+  },
+  "exclude": [
+    "web",
+    "scripts",
+    "node_modules"
+  ]
 }

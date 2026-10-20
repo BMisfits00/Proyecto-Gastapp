@@ -45,11 +45,12 @@ export interface DailyYield {
 // Form types
 export interface CreateTransactionInput {
   account_id: string;
+  to_account_id?: string | null;
   category_id: string | null;
   type: import('@gastapp/shared').TransactionType;
   amount: number;
   currency: string;
-  description: string;
+  description?: string;
   date: string;
 }
 

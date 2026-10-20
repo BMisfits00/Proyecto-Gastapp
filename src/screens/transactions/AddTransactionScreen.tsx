@@ -21,6 +21,7 @@ export function AddTransactionScreen() {
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState('');
+  const [selectedToAccountId, setSelectedToAccountId] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
   const [date] = useState(todayISO());
 
@@ -29,28 +30,40 @@ export function AddTransactionScreen() {
   const { mutate: createTransaction, isPending } = useCreateTransaction();
 
   const handleSubmit = () => {
-    if (!amount || parseFloat(amount) <= 0) {
-      Alert.alert('Error', 'Ingresá un monto válido.');
+    const parsedAmount = parseFloat(amount);
+    if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) {
+      Alert.alert('Error', 'Ingresá un monto válido mayor a 0.');
       return;
     }
     if (!selectedAccountId) {
-      Alert.alert('Error', 'Seleccioná una cuenta.');
+      Alert.alert('Error', 'Seleccioná la cuenta de origen.');
       return;
+    }
+    if (type === 'transfer') {
+      if (!selectedToAccountId) {
+        Alert.alert('Error', 'Seleccioná la cuenta de destino.');
+        return;
+      }
+      if (selectedAccountId === selectedToAccountId) {
+        Alert.alert('Error', 'La cuenta de origen y destino no pueden ser la misma.');
+        return;
+      }
     }
 
     createTransaction(
       {
         type,
-        amount: parseFloat(amount),
+        amount: parsedAmount,
         currency: 'ARS',
-        description,
+        description: description.trim() || (type === 'transfer' ? 'Transferencia entre cuentas' : undefined),
         account_id: selectedAccountId,
-        category_id: selectedCategoryId || null,
+        to_account_id: type === 'transfer' ? selectedToAccountId : null,
+        category_id: type === 'transfer' ? null : (selectedCategoryId || null),
         date,
       },
       {
         onSuccess: () => {
-          Alert.alert('Listo', 'Movimiento registrado.', [
+          Alert.alert('Listo', 'Movimiento registrado correctamente.', [
             { text: 'OK', onPress: () => navigation.goBack() },
           ]);
         },
@@ -61,18 +74,32 @@ export function AddTransactionScreen() {
     );
   };
 
-  const TypeButton = ({ t, label }: { t: TransactionType; label: string }) => (
-    <TouchableOpacity
-      style={[styles.typeBtn, type === t && (t === 'income' ? styles.typeBtnIncome : styles.typeBtnExpense)]}
-      onPress={() => { setType(t); setSelectedCategoryId(''); }}
-    >
-      <Text style={[styles.typeBtnText, type === t && styles.typeBtnTextActive]}>{label}</Text>
-    </TouchableOpacity>
-  );
+  const TypeButton = ({ t, label }: { t: TransactionType; label: string }) => {
+    let activeStyle = styles.typeBtnExpense;
+    if (t === 'income') activeStyle = styles.typeBtnIncome;
+    if (t === 'transfer') activeStyle = styles.typeBtnTransfer;
+
+    return (
+      <TouchableOpacity
+        style={[styles.typeBtn, type === t && activeStyle]}
+        onPress={() => {
+          setType(t);
+          setSelectedCategoryId('');
+        }}
+      >
+        <Text style={[styles.typeBtnText, type === t && styles.typeBtnTextActive]}>
+          {label}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={{ flex: 1 }}
+      >
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           {/* Header */}
           <View style={styles.header}>
@@ -83,10 +110,11 @@ export function AddTransactionScreen() {
             <View style={{ width: 28 }} />
           </View>
 
-          {/* Tipo */}
+          {/* Tipo (Gasto, Ingreso, Transferencia) */}
           <View style={styles.typeRow}>
             <TypeButton t="expense" label="Gasto" />
             <TypeButton t="income" label="Ingreso" />
+            <TypeButton t="transfer" label="Transferencia" />
           </View>
 
           {/* Monto */}
@@ -102,14 +130,16 @@ export function AddTransactionScreen() {
           {/* Descripción */}
           <Input
             label="Descripción (opcional)"
-            placeholder="Ej: Almuerzo con amigos"
+            placeholder={type === 'transfer' ? 'Ej: Traspaso a Mercado Pago' : 'Ej: Almuerzo con amigos'}
             value={description}
             onChangeText={setDescription}
             icon="create-outline"
           />
 
-          {/* Cuenta */}
-          <Text style={styles.label}>Cuenta</Text>
+          {/* Cuenta de Origen */}
+          <Text style={styles.label}>
+            {type === 'transfer' ? 'Cuenta de origen (sale el dinero)' : 'Cuenta'}
+          </Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll}>
             {accounts?.map((acc) => (
               <TouchableOpacity
@@ -118,7 +148,12 @@ export function AddTransactionScreen() {
                 onPress={() => setSelectedAccountId(acc.id)}
               >
                 <View style={[styles.chipDot, { backgroundColor: acc.color ?? Colors.primary }]} />
-                <Text style={[styles.chipText, selectedAccountId === acc.id && styles.chipTextActive]}>
+                <Text
+                  style={[
+                    styles.chipText,
+                    selectedAccountId === acc.id && styles.chipTextActive,
+                  ]}
+                >
                   {acc.name}
                 </Text>
               </TouchableOpacity>
@@ -128,25 +163,64 @@ export function AddTransactionScreen() {
             )}
           </ScrollView>
 
-          {/* Categoría */}
-          <Text style={[styles.label, { marginTop: Spacing.md }]}>Categoría</Text>
-          <View style={styles.categoriesGrid}>
-            {categories?.map((cat) => (
-              <TouchableOpacity
-                key={cat.id}
-                style={[styles.catItem, selectedCategoryId === cat.id && styles.catItemActive]}
-                onPress={() => setSelectedCategoryId(cat.id)}
-              >
-                <Text style={styles.catIcon}>{cat.icon ?? '•'}</Text>
-                <Text style={[styles.catText, selectedCategoryId === cat.id && styles.catTextActive]}>
-                  {cat.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          {/* Cuenta de Destino (Solo si es Transferencia) */}
+          {type === 'transfer' && (
+            <>
+              <Text style={[styles.label, { marginTop: Spacing.md }]}>
+                Cuenta de destino (entra el dinero)
+              </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll}>
+                {accounts
+                  ?.filter((acc) => acc.id !== selectedAccountId)
+                  .map((acc) => (
+                    <TouchableOpacity
+                      key={acc.id}
+                      style={[styles.chip, selectedToAccountId === acc.id && styles.chipActiveTransfer]}
+                      onPress={() => setSelectedToAccountId(acc.id)}
+                    >
+                      <View style={[styles.chipDot, { backgroundColor: acc.color ?? Colors.income }]} />
+                      <Text
+                        style={[
+                          styles.chipText,
+                          selectedToAccountId === acc.id && styles.chipTextActiveTransfer,
+                        ]}
+                      >
+                        {acc.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+              </ScrollView>
+            </>
+          )}
+
+          {/* Categoría (Solo para Gasto / Ingreso) */}
+          {type !== 'transfer' && (
+            <>
+              <Text style={[styles.label, { marginTop: Spacing.md }]}>Categoría</Text>
+              <View style={styles.categoriesGrid}>
+                {categories?.map((cat) => (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[styles.catItem, selectedCategoryId === cat.id && styles.catItemActive]}
+                    onPress={() => setSelectedCategoryId(cat.id)}
+                  >
+                    <Text style={styles.catIcon}>{cat.icon ?? '•'}</Text>
+                    <Text
+                      style={[
+                        styles.catText,
+                        selectedCategoryId === cat.id && styles.catTextActive,
+                      ]}
+                    >
+                      {cat.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
+          )}
 
           <Button
-            title="Guardar movimiento"
+            title={type === 'transfer' ? 'Confirmar transferencia' : 'Guardar movimiento'}
             onPress={handleSubmit}
             loading={isPending}
             style={styles.saveBtn}
@@ -165,7 +239,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md, marginBottom: Spacing.md,
   },
   title: { color: Colors.text, fontSize: FontSize.lg, fontWeight: '700' },
-  typeRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md },
+  typeRow: { flexDirection: 'row', gap: Spacing.xs, marginBottom: Spacing.md },
   typeBtn: {
     flex: 1, paddingVertical: Spacing.md, borderRadius: BorderRadius.md,
     backgroundColor: Colors.card, borderWidth: 1, borderColor: Colors.border,
@@ -173,7 +247,8 @@ const styles = StyleSheet.create({
   },
   typeBtnIncome: { backgroundColor: Colors.income + '20', borderColor: Colors.income },
   typeBtnExpense: { backgroundColor: Colors.expense + '20', borderColor: Colors.expense },
-  typeBtnText: { color: Colors.textSecondary, fontSize: FontSize.md, fontWeight: '600' },
+  typeBtnTransfer: { backgroundColor: Colors.primary + '25', borderColor: Colors.primary },
+  typeBtnText: { color: Colors.textSecondary, fontSize: FontSize.sm, fontWeight: '600' },
   typeBtnTextActive: { color: Colors.text },
   label: { color: Colors.textSecondary, fontSize: FontSize.sm, fontWeight: '500', marginBottom: Spacing.sm },
   chipsScroll: { marginBottom: Spacing.sm },
@@ -184,9 +259,11 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.border, marginRight: Spacing.sm,
   },
   chipActive: { borderColor: Colors.primary, backgroundColor: Colors.primary + '20' },
+  chipActiveTransfer: { borderColor: Colors.income, backgroundColor: Colors.income + '20' },
   chipDot: { width: 8, height: 8, borderRadius: 4 },
   chipText: { color: Colors.textSecondary, fontSize: FontSize.sm },
   chipTextActive: { color: Colors.primary },
+  chipTextActiveTransfer: { color: Colors.income },
   noData: { color: Colors.textMuted, fontSize: FontSize.sm, padding: Spacing.sm },
   categoriesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginBottom: Spacing.md },
   catItem: {

@@ -1,33 +1,64 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  ActivityIndicator, RefreshControl,
+  ActivityIndicator, RefreshControl, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { useAllTransactions, useDeleteTransaction } from '../../hooks/useTransactions';
+import { useInfiniteTransactions, useDeleteTransaction } from '../../hooks/useTransactions';
 import { TransactionItem } from '../../components/transactions/TransactionItem';
 import { Transaction } from '../../types';
+import { RootStackParamList } from '../../navigation/types';
 import { Colors, FontSize, Spacing, BorderRadius } from '../../constants/colors';
 
 type FilterType = 'all' | 'income' | 'expense';
 
 export function TransactionListScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [filter, setFilter] = useState<FilterType>('all');
-  const { data: transactions, isLoading, refetch } = useAllTransactions();
+  const {
+    data,
+    isLoading,
+    isRefetching,
+    refetch,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+  } = useInfiniteTransactions(20);
   const { mutate: deleteTransaction } = useDeleteTransaction();
 
-  const filtered = transactions?.filter((t) =>
+  // Aplanar las páginas de la query infinita
+  const allTransactions = data?.pages.flatMap((page) => page) ?? [];
+
+  const filtered = allTransactions.filter((t) =>
     filter === 'all' ? true : t.type === filter
   );
 
+  const handleDelete = (transaction: Transaction) => {
+    Alert.alert(
+      'Eliminar movimiento',
+      `¿Deseás eliminar "${transaction.description || transaction.category?.name || 'este movimiento'}"? El saldo se revertirá automáticamente.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: () => deleteTransaction(transaction.id),
+        },
+      ]
+    );
+  };
+
   const renderItem = ({ item }: { item: Transaction }) => (
-    <TransactionItem
-      transaction={item}
-      onPress={() => {
-        // TODO: navegar a detalle/edición
-      }}
-    />
+    <TouchableOpacity
+      activeOpacity={0.8}
+      onPress={() => navigation.navigate('EditTransaction', { transaction: item })}
+      onLongPress={() => handleDelete(item)}
+    >
+      <TransactionItem transaction={item} />
+    </TouchableOpacity>
   );
 
   const FilterButton = ({ type, label }: { type: FilterType; label: string }) => (
@@ -41,11 +72,18 @@ export function TransactionListScreen() {
     </TouchableOpacity>
   );
 
+  const handleEndReached = () => {
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Movimientos</Text>
+        <Text style={styles.hint}>Tocá para editar · Mantené presionado para borrar</Text>
       </View>
 
       {/* Filtros */}
@@ -66,8 +104,21 @@ export function TransactionListScreen() {
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           contentContainerStyle={styles.list}
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.4}
           refreshControl={
-            <RefreshControl refreshing={false} onRefresh={refetch} tintColor={Colors.primary} />
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={refetch}
+              tintColor={Colors.primary}
+            />
+          }
+          ListFooterComponent={
+            isFetchingNextPage ? (
+              <View style={styles.footerLoader}>
+                <ActivityIndicator color={Colors.primary} size="small" />
+              </View>
+            ) : null
           }
           ListEmptyComponent={
             <View style={styles.center}>
@@ -83,9 +134,19 @@ export function TransactionListScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  header: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.md, paddingBottom: Spacing.sm },
+  header: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.sm,
+  },
   title: { color: Colors.text, fontSize: FontSize.xxl, fontWeight: '800' },
-  filters: { flexDirection: 'row', paddingHorizontal: Spacing.lg, gap: Spacing.sm, marginBottom: Spacing.md },
+  hint: { color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 2 },
+  filters: {
+    flexDirection: 'row',
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
   filterBtn: {
     paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.md,
@@ -98,6 +159,7 @@ const styles = StyleSheet.create({
   filterText: { color: Colors.textSecondary, fontSize: FontSize.sm, fontWeight: '500' },
   filterTextActive: { color: Colors.text },
   list: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.xxl },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: Spacing.xxl },
-  emptyText: { color: Colors.textMuted, marginTop: Spacing.md, fontSize: FontSize.md },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: Spacing.xxl },
+  emptyText: { color: Colors.textMuted, fontSize: FontSize.md, marginTop: Spacing.sm },
+  footerLoader: { paddingVertical: Spacing.md, alignItems: 'center' },
 });

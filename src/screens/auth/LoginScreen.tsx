@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, KeyboardAvoidingView,
   Platform, TouchableOpacity, Alert,
@@ -7,9 +7,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import * as LocalAuthentication from 'expo-local-authentication';
 import { AuthStackParamList } from '../../navigation/AuthNavigator';
 import { useAuth } from '../../hooks/useAuth';
+import { biometricService } from '../../services/biometricService';
 import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
 import { Colors, FontSize, Spacing, BorderRadius } from '../../constants/colors';
@@ -19,23 +19,49 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 export function LoginScreen({ navigation }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [hasBiometrics, setHasBiometrics] = useState(false);
   const { signIn, authLoading, error } = useAuth();
+
+  useEffect(() => {
+    async function checkSavedBiometrics() {
+      const creds = await biometricService.getSavedCredentials();
+      if (creds?.email) {
+        setEmail(creds.email);
+        setHasBiometrics(true);
+      }
+    }
+    checkSavedBiometrics();
+  }, []);
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
       Alert.alert('Campos requeridos', 'Por favor completá email y contraseña.');
       return;
     }
-    await signIn(email.trim(), password);
+    try {
+      await signIn(email.trim(), password);
+    } catch {
+      // El error ya queda expuesto en useAuth().error
+    }
   };
 
   const handleBiometric = async () => {
-    const result = await LocalAuthentication.authenticateAsync({
-      promptMessage: 'Ingresá a Gastapp',
-      fallbackLabel: 'Usar contraseña',
-    });
-    if (result.success) {
-      Alert.alert('Biométrica OK', 'Autenticación por Face ID exitosa (conectar con sesión guardada).');
+    const creds = await biometricService.getSavedCredentials();
+    if (!creds) {
+      Alert.alert(
+        'Acceso biométrico',
+        'Iniciá sesión una vez con tu email y contraseña para activar el ingreso por Face ID o huella.'
+      );
+      return;
+    }
+
+    const authenticated = await biometricService.authenticate('Ingresá a Gastapp');
+    if (authenticated) {
+      try {
+        await signIn(creds.email, creds.password);
+      } catch (err: any) {
+        Alert.alert('Error', err.message ?? 'No se pudo iniciar sesión.');
+      }
     }
   };
 
@@ -94,10 +120,25 @@ export function LoginScreen({ navigation }: Props) {
               style={styles.mainButton}
             />
 
-            {/* Face ID */}
-            <TouchableOpacity style={styles.biometricBtn} onPress={handleBiometric}>
-              <Ionicons name="scan-outline" size={22} color={Colors.primary} />
-              <Text style={styles.biometricText}>Ingresar con Face ID</Text>
+            {/* Face ID / Huella */}
+            <TouchableOpacity
+              style={[styles.biometricBtn, hasBiometrics && styles.biometricBtnActive]}
+              onPress={handleBiometric}
+              disabled={authLoading}
+            >
+              <Ionicons
+                name="scan-outline"
+                size={22}
+                color={hasBiometrics ? Colors.income : Colors.primary}
+              />
+              <Text
+                style={[
+                  styles.biometricText,
+                  hasBiometrics && { color: Colors.income, fontWeight: '600' },
+                ]}
+              >
+                {hasBiometrics ? 'Ingresar con Face ID / Huella' : 'Activar Face ID / Huella'}
+              </Text>
             </TouchableOpacity>
           </View>
 
@@ -150,6 +191,14 @@ const styles = StyleSheet.create({
     marginTop: Spacing.md,
     gap: Spacing.sm,
     padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.card,
+  },
+  biometricBtnActive: {
+    borderColor: Colors.income + '40',
+    backgroundColor: Colors.income + '10',
   },
   biometricText: { color: Colors.primary, fontSize: FontSize.md, fontWeight: '500' },
   registerLink: { alignItems: 'center', paddingBottom: Spacing.xl },

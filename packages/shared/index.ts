@@ -40,6 +40,7 @@ export interface Transaction {
   id: string;
   user_id: string;
   account_id: string;
+  to_account_id?: string | null;
   category_id: string | null;
   type: TransactionType;
   amount: number;
@@ -50,6 +51,7 @@ export interface Transaction {
   updated_at: string;
   // Joined
   account?: Account;
+  to_account?: Account;
   category?: Category;
 }
 
@@ -58,42 +60,52 @@ export interface Investment {
   user_id: string;
   account_id: string;
   name: string;
+  type?: string;
   initial_amount: number;
-  current_amount: number;
+  current_amount?: number;
+  amount?: number;
   currency: string;
-  started_at: string;
+  yield_rate?: number | null;
+  tna?: number | null;
+  term_days?: number | null;
+  start_date?: string;
+  started_at?: string;
+  end_date?: string | null;
+  maturity_date?: string | null;
+  gain_amount?: number | null;
+  is_active?: boolean;
   created_at: string;
-  updated_at: string;
-  // Plazos fijos
-  tna: number | null;
-  term_days: number | null;
-  maturity_date: string | null;
-  gain_amount: number | null;
+  account?: Account;
 }
 
 export interface CreditCard {
   id: string;
-  account_id: string;
   user_id: string;
+  account_id: string;
   last_digits: string;
   brand: string;
-  product: string | null;
-  holder: string | null;
+  product_name: string | null;
+  product?: string | null;
+  holder_name: string | null;
+  holder?: string | null;
   due_date: string | null;
   closing_date: string | null;
-  consumption_ars: number;
-  consumption_usd: number;
+  period_expenses_ars: number;
+  consumption_ars?: number;
+  period_expenses_usd: number;
+  consumption_usd?: number;
   min_payment: number;
-  available_ars: number;
-  available_usd: number;
+  available_credit: number;
+  available_ars?: number;
   synced_at: string;
   created_at: string;
   updated_at: string;
+  account?: Account;
 }
 
 export interface CardMovement {
   id: string;
-  card_id: string;
+  credit_card_id: string;
   user_id: string;
   date: string;
   merchant: string;
@@ -101,19 +113,19 @@ export interface CardMovement {
   currency: string;
   installment: string | null;
   type: CardMovementType;
-  category_id: string | null;
+  category_id?: string | null;
   created_at: string;
-  // Joined
   category?: Category;
 }
 
+// Métricas financieras calculadas (client-side)
 export interface FinancialMetrics {
   totalBalance: number;
-  monthlyIncome: number;
-  monthlyExpenses: number;
+  totalIncome: number;
+  totalExpenses: number;
+  netSavings: number;
   savingsRate: number;
   leisureRatio: number;
-  netSavings: number;
 }
 
 export interface CategoryExpense {
