@@ -265,106 +265,242 @@ export async function POST(req: NextRequest) {
   }
 
   // ─── Procesar e insertar transacciones bancarias (Gastos e Ingresos) ───────
-  const accountMovements = (scraped.movements ?? []).filter((m: any) => !m.pending);
   let newTxCount = 0;
 
-  if (accountMovements.length > 0) {
-    const { data: existingTransactions } = await supabase
-      .from('transactions')
-      .select('date, amount, type, description')
-      .eq('account_id', account_id);
+  if (Array.isArray(scraped.accounts) && scraped.accounts.length > 0) {
+    // Modo Multi-cuenta: procesar todas las cajas y cuentas encontradas en Galicia
+    const { data: dbAccounts } = await supabase
+      .from('accounts')
+      .select('id, name, currency, provider')
+      .eq('user_id', user.id)
+      .eq('is_active', true);
 
-    const existingTxCounts = new Map<string, number>();
-    (existingTransactions ?? []).forEach(tx => {
-      const descNorm = (tx.description || '').trim().toLowerCase();
-      const key = `${tx.date}_${Number(tx.amount).toFixed(2)}_${tx.type}_${descNorm}`;
-      existingTxCounts.set(key, (existingTxCounts.get(key) || 0) + 1);
-    });
+    const galiciaAccounts = (dbAccounts || []).filter((a: any) =>
+      a.provider?.toLowerCase().includes('galicia') ||
+      a.name.toLowerCase().includes('galicia')
+    );
 
-    const newTransactionsToInsert: Array<{
-      user_id: string;
-      account_id: string;
-      category_id: string | null;
-      type: 'income' | 'expense';
-      amount: number;
-      currency: string;
-      description: string;
-      date: string;
-    }> = [];
+    for (const scrapedAcc of scraped.accounts) {
+      let targetAccount: any = null;
 
-    for (const m of accountMovements) {
-      const descLower = (m.description || '').toLowerCase();
-      if (SKIP_DESCRIPTIONS.has(descLower)) continue;
-
-      const desc = (m.detail ? m.detail.substring(0, 120) : m.description) || '';
-      const descNorm = desc.trim().toLowerCase();
-      const amountNum = Number(m.amount);
-      if (!amountNum || isNaN(amountNum) || amountNum <= 0) continue;
-
-      const key = `${m.date}_${amountNum.toFixed(2)}_${m.type}_${descNorm}`;
-      const count = existingTxCounts.get(key) || 0;
-      if (count > 0) {
-        existingTxCounts.set(key, count - 1);
-        continue;
+      if (scrapedAcc.currency === 'USD') {
+        targetAccount = galiciaAccounts.find((a: any) =>
+          a.currency === 'USD' ||
+          a.name.toLowerCase().includes('dólar') ||
+          a.name.toLowerCase().includes('dolar')
+        );
+      } else if (
+        scrapedAcc.name.toLowerCase().includes('corriente') ||
+        scrapedAcc.name.toLowerCase().includes('cta cte')
+      ) {
+        targetAccount = galiciaAccounts.find((a: any) =>
+          a.name.toLowerCase().includes('corriente') ||
+          a.name.toLowerCase().includes('cta cte')
+        );
+      } else {
+        targetAccount = galiciaAccounts.find((a: any) =>
+          a.id === account_id ||
+          (a.currency === 'ARS' && !a.name.toLowerCase().includes('corriente'))
+        ) || galiciaAccounts[0];
       }
 
-      const match = predictCategory(
-        {
-          description: desc,
-          detail:      m.detail,
-          type:        m.type === 'income' ? 'income' : 'expense',
-        },
-        knowledge,
-        categories,
-      );
+      if (!targetAccount) {
+        const { data: createdAcc } = await supabase
+          .from('accounts')
+          .insert({
+            user_id: user.id,
+            name: scrapedAcc.name,
+            type: 'bank',
+            provider: 'Banco Galicia',
+            balance: Number(scrapedAcc.balance) || 0,
+            currency: scrapedAcc.currency || 'ARS',
+            is_active: true,
+          })
+          .select('id, name, currency, provider')
+          .single();
 
-      newTransactionsToInsert.push({
-        user_id:     user.id,
-        account_id,
-        category_id: match?.categoryId ?? null,
-        type:        m.type === 'income' ? 'income' : 'expense',
-        amount:      amountNum,
-        currency:    m.currency || 'ARS',
-        description: desc,
-        date:        m.date,
-      });
-    }
-
-    if (newTransactionsToInsert.length > 0) {
-      newTxCount = newTransactionsToInsert.length;
-      for (let i = 0; i < newTransactionsToInsert.length; i += 100) {
-        const batch = newTransactionsToInsert.slice(i, i + 100);
-        const { error: txErr } = await supabase.from('transactions').insert(batch);
-        if (txErr) {
-          console.error('Error al insertar transacciones:', txErr);
+        if (createdAcc) {
+          targetAccount = createdAcc;
+          galiciaAccounts.push(createdAcc);
         }
       }
-    }
 
-    // Actualizar balance de cuenta con el saldo del extracto bancario más reciente
-    if (accountMovements.length > 0 && accountMovements[0]?.balance !== undefined && accountMovements[0]?.balance !== null) {
-      try {
-        const latestBal = Number(accountMovements[0].balance);
-        if (!isNaN(latestBal)) {
-          const { error: balErr } = await supabase
-            .from('accounts')
-            .update({
-              balance: latestBal,
-            })
-            .eq('id', account_id);
-          if (balErr) {
-            console.error('Error al actualizar saldo activo de la cuenta:', balErr);
-          } else {
-            // Intento opcional de guardar last_scraped_at si la columna existiera
-            try {
-              await supabase.from('accounts').update({ last_scraped_at: syncTimestamp }).eq('id', account_id);
-            } catch {
-              // Silencioso si la columna no existe
-            }
+      if (!targetAccount) continue;
+
+      const accMvs = (scrapedAcc.movements ?? []).filter((m: any) => !m.pending);
+
+      if (accMvs.length > 0) {
+        const { data: existingTransactions } = await supabase
+          .from('transactions')
+          .select('date, amount, type, description')
+          .eq('account_id', targetAccount.id);
+
+        const existingTxCounts = new Map<string, number>();
+        (existingTransactions ?? []).forEach((tx: any) => {
+          const descNorm = (tx.description || '').trim().toLowerCase();
+          const key = `${tx.date}_${Number(tx.amount).toFixed(2)}_${tx.type}_${descNorm}`;
+          existingTxCounts.set(key, (existingTxCounts.get(key) || 0) + 1);
+        });
+
+        const newTxs: any[] = [];
+        for (const m of accMvs) {
+          const descLower = (m.description || '').toLowerCase();
+          if (SKIP_DESCRIPTIONS.has(descLower)) continue;
+
+          const desc = (m.detail ? m.detail.substring(0, 120) : m.description) || '';
+          const descNorm = desc.trim().toLowerCase();
+          const amountNum = Number(m.amount);
+          if (!amountNum || isNaN(amountNum) || amountNum <= 0) continue;
+
+          const key = `${m.date}_${amountNum.toFixed(2)}_${m.type}_${descNorm}`;
+          const count = existingTxCounts.get(key) || 0;
+          if (count > 0) {
+            existingTxCounts.set(key, count - 1);
+            continue;
+          }
+
+          const match = predictCategory(
+            {
+              description: desc,
+              detail:      m.detail,
+              type:        m.type === 'income' ? 'income' : 'expense',
+            },
+            knowledge,
+            categories,
+          );
+
+          newTxs.push({
+            user_id:     user.id,
+            account_id:  targetAccount.id,
+            category_id: match?.categoryId ?? null,
+            type:        m.type === 'income' ? 'income' : 'expense',
+            amount:      amountNum,
+            currency:    m.currency || targetAccount.currency || 'ARS',
+            description: desc,
+            date:        m.date,
+          });
+        }
+
+        if (newTxs.length > 0) {
+          newTxCount += newTxs.length;
+          for (let i = 0; i < newTxs.length; i += 100) {
+            const batch = newTxs.slice(i, i + 100);
+            const { error: txErr } = await supabase.from('transactions').insert(batch);
+            if (txErr) console.error('Error al insertar transacciones:', txErr);
           }
         }
-      } catch (err) {
-        console.error('Excepción al actualizar saldo de cuenta:', err);
+      }
+
+      // Actualizar balance de la caja con el saldo activo
+      if (scrapedAcc.balance !== undefined && scrapedAcc.balance !== null) {
+        const balNum = Number(scrapedAcc.balance);
+        if (!isNaN(balNum)) {
+          await supabase
+            .from('accounts')
+            .update({ balance: balNum })
+            .eq('id', targetAccount.id);
+        }
+      }
+    }
+  } else {
+    // Modo de retrocompatibilidad: cuenta individual
+    const accountMovements = (scraped.movements ?? []).filter((m: any) => !m.pending);
+
+    if (accountMovements.length > 0) {
+      const { data: existingTransactions } = await supabase
+        .from('transactions')
+        .select('date, amount, type, description')
+        .eq('account_id', account_id);
+
+      const existingTxCounts = new Map<string, number>();
+      (existingTransactions ?? []).forEach(tx => {
+        const descNorm = (tx.description || '').trim().toLowerCase();
+        const key = `${tx.date}_${Number(tx.amount).toFixed(2)}_${tx.type}_${descNorm}`;
+        existingTxCounts.set(key, (existingTxCounts.get(key) || 0) + 1);
+      });
+
+      const newTransactionsToInsert: Array<{
+        user_id: string;
+        account_id: string;
+        category_id: string | null;
+        type: 'income' | 'expense';
+        amount: number;
+        currency: string;
+        description: string;
+        date: string;
+      }> = [];
+
+      for (const m of accountMovements) {
+        const descLower = (m.description || '').toLowerCase();
+        if (SKIP_DESCRIPTIONS.has(descLower)) continue;
+
+        const desc = (m.detail ? m.detail.substring(0, 120) : m.description) || '';
+        const descNorm = desc.trim().toLowerCase();
+        const amountNum = Number(m.amount);
+        if (!amountNum || isNaN(amountNum) || amountNum <= 0) continue;
+
+        const key = `${m.date}_${amountNum.toFixed(2)}_${m.type}_${descNorm}`;
+        const count = existingTxCounts.get(key) || 0;
+        if (count > 0) {
+          existingTxCounts.set(key, count - 1);
+          continue;
+        }
+
+        const match = predictCategory(
+          {
+            description: desc,
+            detail:      m.detail,
+            type:        m.type === 'income' ? 'income' : 'expense',
+          },
+          knowledge,
+          categories,
+        );
+
+        newTransactionsToInsert.push({
+          user_id:     user.id,
+          account_id,
+          category_id: match?.categoryId ?? null,
+          type:        m.type === 'income' ? 'income' : 'expense',
+          amount:      amountNum,
+          currency:    m.currency || 'ARS',
+          description: desc,
+          date:        m.date,
+        });
+      }
+
+      if (newTransactionsToInsert.length > 0) {
+        newTxCount = newTransactionsToInsert.length;
+        for (let i = 0; i < newTransactionsToInsert.length; i += 100) {
+          const batch = newTransactionsToInsert.slice(i, i + 100);
+          const { error: txErr } = await supabase.from('transactions').insert(batch);
+          if (txErr) {
+            console.error('Error al insertar transacciones:', txErr);
+          }
+        }
+      }
+
+      // Actualizar balance de cuenta con el saldo del extracto bancario más reciente
+      if (accountMovements.length > 0 && accountMovements[0]?.balance !== undefined && accountMovements[0]?.balance !== null) {
+        try {
+          const latestBal = Number(accountMovements[0].balance);
+          if (!isNaN(latestBal)) {
+            const { error: balErr } = await supabase
+              .from('accounts')
+              .update({
+                balance: latestBal,
+              })
+              .eq('id', account_id);
+            if (balErr) {
+              console.error('Error al actualizar saldo activo de la cuenta:', balErr);
+            } else {
+              try {
+                await supabase.from('accounts').update({ last_scraped_at: syncTimestamp }).eq('id', account_id);
+              } catch {}
+            }
+          }
+        } catch (err) {
+          console.error('Excepción al actualizar saldo de cuenta:', err);
+        }
       }
     }
   }

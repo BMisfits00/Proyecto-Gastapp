@@ -140,43 +140,130 @@ async function goToSection(page, menulinkId) {
   await page.waitForTimeout(3000);
 }
 
-// ─── Movimientos de cuenta ───────────────────────────────────────────────────
+// ─── Cuentas y Cajas de Galicia ───────────────────────────────────────────────
+
+function parseBoxInfo(text, index) {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  const lower = clean.toLowerCase();
+
+  let currency = 'ARS';
+  if (lower.includes('u$s') || lower.includes('usd') || lower.includes('dólar') || lower.includes('dolar')) {
+    currency = 'USD';
+  }
+
+  let name = '';
+  if (currency === 'USD') {
+    name = 'Caja de Ahorro en Dólares';
+  } else if (lower.includes('corriente') || lower.includes('cta cte') || lower.includes('cta. cte') || lower.includes('cc $')) {
+    name = 'Cuenta Corriente en Pesos';
+  } else if (lower.includes('ahorro') || lower.includes('ca $')) {
+    name = 'Caja de Ahorro en Pesos';
+  } else {
+    name = index === 0 ? 'Caja de Ahorro en Pesos' : `Cuenta Galicia ${index + 1}`;
+  }
+
+  // Extraer saldo que figura en la card del banco si está visible
+  const matchBal = clean.match(/(?:[$]|u[$]s|usd)\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)/i);
+  let displayedBalance = null;
+  if (matchBal) {
+    displayedBalance = parseARS(matchBal[1]);
+  }
+
+  return { name, currency, displayedBalance, rawText: clean };
+}
 
 async function scrapeMovements(page, store) {
-  console.log('\n🏦 Movimientos de cuenta...');
+  console.log('\n🏦 Cuentas y cajas de Galicia...');
   try {
     // Cuentas = menulink 2
     await goToSection(page, 2);
+    await page.waitForTimeout(3000);
 
-    // Disparar la carga de movimientos clickeando la primera card de cuenta
-    await page.locator('div.box_ctas.clickeable').first().click({ force: true });
-    await page.waitForTimeout(5000);
+    const boxLocator = page.locator('div.box_ctas.clickeable, div.box_ctas');
+    const count = await boxLocator.count();
+    console.log(`  Encontradas ${count} cajas/cuentas en pantalla.`);
 
-    const raw = store['GetMovimientosCuenta'];
-    if (!raw?.Model?.Movimientos?.length) {
-      console.warn('  ⚠ Sin movimientos en la respuesta');
-      return [];
+    if (count === 0) {
+      console.warn('  ⚠ No se encontraron cards de cuenta con div.box_ctas');
+      return { accounts: [], primaryMovements: [] };
     }
 
-    const movs = raw.Model.Movimientos.map(m => ({
-      id:          m.ID,
-      date:        toISO(m.Fecha),
-      description: m.DescripcionAMostrar,
-      detail:      m.DescripcionSide?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
-      type:        m.IconoLabel === 'Ingreso' ? 'income' : 'expense',
-      amount:      Math.abs(m.IconoLabel === 'Ingreso' ? parseARS(m.ImporteCredito) : parseARS(m.ImporteDebito)),
-      balance:     m.SaldoParcial,
-      currency:    m.Moneda === 2 ? 'USD' : 'ARS',
-      pending:     m.EsMovimientoPendiente,
-    }));
+    const accountsData = [];
 
-    console.log(`  ✓ ${movs.length} movimientos (${DATE_FROM} → ${DATE_TO})`);
-    return movs;
+    for (let i = 0; i < count; i++) {
+      try {
+        const box = boxLocator.nth(i);
+        const cardText = await box.innerText().catch(() => '');
+        const boxInfo = parseBoxInfo(cardText, i);
+        console.log(`  [Caja ${i + 1}/${count}] ${boxInfo.name} (${boxInfo.currency})...`);
+
+        // Preparar promesa para interceptar GetMovimientosCuenta
+        const responsePromise = page.waitForResponse(
+          res => res.url().includes('GetMovimientosCuenta') && res.status() === 200,
+          { timeout: 12000 }
+        ).catch(() => null);
+
+        // Click en la caja
+        await box.click({ force: true });
+        await page.waitForTimeout(1500);
+
+        const response = await responsePromise;
+        let raw = null;
+        if (response) {
+          try {
+            raw = await response.json();
+          } catch {}
+        } else {
+          raw = store['GetMovimientosCuenta'];
+        }
+
+        const rawMovs = raw?.Model?.Movimientos ?? [];
+        const movs = rawMovs.map(m => ({
+          id:          m.ID,
+          date:        toISO(m.Fecha),
+          description: m.DescripcionAMostrar,
+          detail:      m.DescripcionSide?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+          type:        m.IconoLabel === 'Ingreso' ? 'income' : 'expense',
+          amount:      Math.abs(m.IconoLabel === 'Ingreso' ? parseARS(m.ImporteCredito) : parseARS(m.ImporteDebito)),
+          balance:     m.SaldoParcial,
+          currency:    m.Moneda === 2 ? 'USD' : boxInfo.currency,
+          pending:     m.EsMovimientoPendiente,
+        }));
+
+        let activeBalance = 0;
+        const latestNonPending = movs.find(m => !m.pending && m.balance !== null && m.balance !== undefined);
+        if (latestNonPending && latestNonPending.balance !== undefined) {
+          activeBalance = Number(latestNonPending.balance);
+        } else if (boxInfo.displayedBalance !== null && !isNaN(boxInfo.displayedBalance)) {
+          activeBalance = boxInfo.displayedBalance;
+        }
+
+        console.log(`    ✓ ${movs.length} movimientos | Saldo activo: ${boxInfo.currency === 'USD' ? 'USD ' : '$'}${activeBalance.toLocaleString('es-AR')}`);
+
+        accountsData.push({
+          name:      boxInfo.name,
+          currency:  boxInfo.currency,
+          balance:   activeBalance,
+          movements: movs,
+        });
+
+      } catch (boxErr) {
+        console.warn(`    ⚠ Error al procesar caja ${i + 1}:`, boxErr.message);
+      }
+    }
+
+    const primaryAccount = accountsData.find(a => a.currency === 'ARS' && a.name.includes('Ahorro')) || accountsData[0];
+    const primaryMovements = primaryAccount ? primaryAccount.movements : [];
+
+    return {
+      accounts: accountsData,
+      primaryMovements,
+    };
 
   } catch (err) {
     await screenshot(page, 'movements-error');
-    console.warn('  ⚠ Error:', err.message);
-    return [];
+    console.warn('  ⚠ Error general en movimientos:', err.message);
+    return { accounts: [], primaryMovements: [] };
   }
 }
 
@@ -381,7 +468,7 @@ async function main() {
     await login(page, creds);
 
     // Ejecutar en secuencia para mantener la sesión activa
-    const movements   = await scrapeMovements(page, store);
+    const { accounts, primaryMovements } = await scrapeMovements(page, store);
     const cards       = await scrapeCards(page, store);
     const investments = await scrapeInvestments(page, store);
     const fxPurchases = await scrapeFxPurchases(page);
@@ -389,7 +476,8 @@ async function main() {
     const output = {
       scrapedAt:    new Date().toISOString(),
       period:       { from: DATE_FROM, to: DATE_TO },
-      movements,
+      accounts:     accounts ?? [],
+      movements:    primaryMovements ?? [],
       cards,
       investments,
       fxPurchases,
@@ -400,11 +488,14 @@ async function main() {
     writeFileSync(outPath, JSON.stringify(output, null, 2));
 
     // Resumen
-    const incomes  = movements.filter(m => m.type === 'income').reduce((s, m) => s + m.amount, 0);
-    const expenses = movements.filter(m => m.type === 'expense').reduce((s, m) => s + m.amount, 0);
-
     console.log('\n── Resumen ─────────────────────────────────────────');
-    console.log(`   Movimientos cuenta:    ${movements.length} (↑ $${incomes.toLocaleString('es-AR')} / ↓ $${expenses.toLocaleString('es-AR')})`);
+    if (accounts && accounts.length > 0) {
+      accounts.forEach(acc => {
+        console.log(`   ${acc.name}: ${acc.movements.length} movimientos | Saldo: ${acc.currency === 'USD' ? 'USD ' : '$'}${acc.balance.toLocaleString('es-AR')}`);
+      });
+    } else {
+      console.log(`   Movimientos cuenta:    ${(primaryMovements || []).length}`);
+    }
     console.log(`   Tarjeta ...${cards.summary?.lastDigits}:      ${cards.movements.length} movimientos | ARS $${cards.summary?.consumptionARS?.toLocaleString('es-AR')} | USD ${cards.summary?.consumptionUSD}`);
     console.log(`   Plazos fijos:          ${investments.length}`);
     console.log(`   Compras/ventas USD:    ${fxPurchases.length}`);
