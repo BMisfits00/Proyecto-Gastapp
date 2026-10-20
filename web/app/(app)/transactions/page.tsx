@@ -104,7 +104,8 @@ export default function TransactionsPage() {
     new Intl.NumberFormat('es-AR', {
       style: 'currency',
       currency: 'ARS',
-      maximumFractionDigits: 0,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(n);
 
   const filtered = transactions.filter((t) => {

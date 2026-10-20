@@ -10,6 +10,41 @@ export const maxDuration = 300;
 
 const GALICIA_DIR = path.resolve(process.cwd(), '../scripts/galicia');
 
+const SKIP_DESCRIPTIONS = new Set([
+  'transf. ctas propias',
+  'transferencia de cuenta propia',
+]);
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function categorizeAccountMovement(m: any): string {
+  const desc = (m.description || '').toLowerCase();
+  const detail = (m.detail || '').toLowerCase();
+
+  if (m.type === 'income') {
+    if (desc.includes('sueldos')) return 'Sueldo';
+    if (desc.includes('proveedores')) return 'Freelance';
+    if (desc.includes('interes capitalizado')) return 'Inversiones';
+    if (desc.includes('cobro plazo')) return 'Inversiones';
+    if (desc.includes('acreditacion plazo')) return 'Inversiones';
+    if (desc.includes('reintegro')) return 'Otros ingresos';
+    if (desc.includes('transferencia de terceros')) return 'Otros ingresos';
+    return 'Otros ingresos';
+  }
+
+  // expense
+  if (desc.includes('transporte') || desc.includes('sube')) return 'Transporte';
+  if (desc.includes('pago de servicios') || desc.includes('deb. autom')) return 'Servicios';
+  if (desc.includes('pago tarjeta')) return 'Otros gastos';
+  if (desc.includes('plazo fijo')) return 'Inversiones';
+  if (desc.includes('compra venta de dolares')) return 'Otros gastos';
+  if (desc.includes('alquiler')) return 'Alquiler';
+  if (desc.includes('transferencia a terceros')) {
+    if (detail.includes('osde') || detail.includes('swiss') || detail.includes('medicus')) return 'Salud';
+    return 'Otros gastos';
+  }
+  return 'Otros gastos';
+}
+
 // ─── Ejecutar el scraper ──────────────────────────────────────────────────────
 
 function runScraper(): Promise<string> {
@@ -206,7 +241,117 @@ export async function POST(req: NextRequest) {
 
     const { error: mvErr } = await supabase.from('card_movements').insert(rows);
     if (mvErr) {
-      return NextResponse.json({ error: `Error al guardar movimientos: ${mvErr.message}` }, { status: 500 });
+      return NextResponse.json({ error: `Error al guardar movimientos de tarjeta: ${mvErr.message}` }, { status: 500 });
+    }
+  }
+
+  // ─── Procesar e insertar transacciones bancarias (Gastos e Ingresos) ───────
+  const accountMovements = (scraped.movements ?? []).filter((m: any) => !m.pending);
+  let newTxCount = 0;
+
+  if (accountMovements.length > 0) {
+    const { data: dbCategories } = await supabase
+      .from('categories')
+      .select('id, name, type')
+      .or(`user_id.is.null,user_id.eq.${user.id}`);
+
+    const catByName: Record<string, string> = {};
+    (dbCategories ?? []).forEach((c: { id: string; name: string }) => {
+      catByName[c.name.trim().toLowerCase()] = c.id;
+    });
+
+    const { data: prevTx } = await supabase
+      .from('transactions')
+      .select('description, category_id')
+      .eq('user_id', user.id)
+      .not('category_id', 'is', null);
+
+    const descCatMap: Record<string, string> = {};
+    (prevTx ?? []).forEach((t: { description: string | null; category_id: string }) => {
+      if (t.description) descCatMap[t.description.trim().toLowerCase()] = t.category_id;
+    });
+
+    const { data: existingTransactions } = await supabase
+      .from('transactions')
+      .select('date, amount, type, description')
+      .eq('account_id', account_id);
+
+    const existingTxCounts = new Map<string, number>();
+    (existingTransactions ?? []).forEach(tx => {
+      const descNorm = (tx.description || '').trim().toLowerCase();
+      const key = `${tx.date}_${Number(tx.amount).toFixed(2)}_${tx.type}_${descNorm}`;
+      existingTxCounts.set(key, (existingTxCounts.get(key) || 0) + 1);
+    });
+
+    const newTransactionsToInsert: Array<{
+      user_id: string;
+      account_id: string;
+      category_id: string | null;
+      type: 'income' | 'expense';
+      amount: number;
+      currency: string;
+      description: string;
+      date: string;
+    }> = [];
+
+    for (const m of accountMovements) {
+      const descLower = (m.description || '').toLowerCase();
+      if (SKIP_DESCRIPTIONS.has(descLower)) continue;
+
+      const desc = (m.detail ? m.detail.substring(0, 120) : m.description) || '';
+      const descNorm = desc.trim().toLowerCase();
+      const amountNum = Number(m.amount);
+      if (!amountNum || isNaN(amountNum) || amountNum <= 0) continue;
+
+      const key = `${m.date}_${amountNum.toFixed(2)}_${m.type}_${descNorm}`;
+      const count = existingTxCounts.get(key) || 0;
+      if (count > 0) {
+        existingTxCounts.set(key, count - 1);
+        continue;
+      }
+
+      let catId = descCatMap[descNorm] ?? null;
+      if (!catId) {
+        const catName = categorizeAccountMovement(m);
+        catId = catByName[catName.toLowerCase()] ?? null;
+      }
+
+      newTransactionsToInsert.push({
+        user_id: user.id,
+        account_id,
+        category_id: catId,
+        type: m.type === 'income' ? 'income' : 'expense',
+        amount: amountNum,
+        currency: m.currency || 'ARS',
+        description: desc,
+        date: m.date,
+      });
+    }
+
+    if (newTransactionsToInsert.length > 0) {
+      newTxCount = newTransactionsToInsert.length;
+      for (let i = 0; i < newTransactionsToInsert.length; i += 100) {
+        const batch = newTransactionsToInsert.slice(i, i + 100);
+        const { error: txErr } = await supabase.from('transactions').insert(batch);
+        if (txErr) {
+          console.error('Error al insertar transacciones:', txErr);
+        }
+      }
+    }
+
+    // Actualizar balance de cuenta con el saldo del extracto bancario más reciente
+    if (accountMovements[0].balance !== undefined && accountMovements[0].balance !== null) {
+      try {
+        await supabase
+          .from('accounts')
+          .update({
+            balance: Number(accountMovements[0].balance),
+            last_scraped_at: syncTimestamp,
+          })
+          .eq('id', account_id);
+      } catch {
+        // Silencioso
+      }
     }
   }
 
@@ -214,6 +359,7 @@ export async function POST(req: NextRequest) {
     ok:             true,
     cardLastDigits: summary.lastDigits,
     movementsCount: movements.length,
+    newTxCount,
     syncedAt:       syncTimestamp,
   });
 }

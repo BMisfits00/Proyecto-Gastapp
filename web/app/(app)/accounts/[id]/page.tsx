@@ -30,7 +30,12 @@ const MONTHS_SHORT = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct
 const DAYS_ES     = ['Lu','Ma','Mi','Ju','Vi','Sá','Do'];
 
 const fmt = (n: number, currency = 'ARS') =>
-  new Intl.NumberFormat('es-AR', { style: 'currency', currency, maximumFractionDigits: 0 }).format(n);
+  new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n);
 
 const fmtDate = (d: string) =>
   new Date(d + 'T00:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -638,7 +643,8 @@ export default function AccountDetailPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Error desconocido');
       setSyncState('success');
-      setSyncMsg(`Tarjeta ····${data.cardLastDigits} · ${data.movementsCount} movimientos sincronizados`);
+      const txInfo = data.newTxCount !== undefined ? ` · ${data.newTxCount} transacciones` : '';
+      setSyncMsg(`Sincronizado: Tarjeta ····${data.cardLastDigits} (${data.movementsCount} consumos)${txInfo}`);
       setTimeout(() => window.location.reload(), 1500);
     } catch (err: unknown) {
       setSyncState('error');
