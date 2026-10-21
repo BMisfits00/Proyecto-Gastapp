@@ -774,6 +774,34 @@ export default function AccountDetailPage() {
             await supabase.from('accounts').update({ balance: targetBalance }).eq('id', acc.id);
             acc.balance = targetBalance;
           }
+
+          // Si es caja de ahorro en dólares y aún no tiene movimientos en la base de datos, importar automáticamente del último scrapeo
+          if (
+            (acc.currency === 'USD' || acc.name.toLowerCase().includes('dólar') || acc.name.toLowerCase().includes('dolar')) &&
+            currentIncome.length === 0 &&
+            currentExpenses.length === 0
+          ) {
+            try {
+              const scrapeRes = await fetch('/api/scrape/galicia', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ import_only: true, account_id: acc.id }),
+              });
+              if (scrapeRes.ok) {
+                const [
+                  { data: freshIncome },
+                  { data: freshExpense },
+                ] = await Promise.all([
+                  supabase.from('transactions').select('*, category:categories(id,name,color)').eq('account_id', acc.id).eq('type', 'income').order('date', { ascending: false }),
+                  supabase.from('transactions').select('*, category:categories(id,name,color)').eq('account_id', acc.id).eq('type', 'expense').order('date', { ascending: false }),
+                ]);
+                currentIncome = freshIncome || [];
+                currentExpenses = freshExpense || [];
+              }
+            } catch (e) {
+              console.error('Error auto-importando movimientos:', e);
+            }
+          }
         }
         currentCard = null;
         currentInvs = [];
@@ -1322,6 +1350,77 @@ function BalanceTab({
             </div>
           )}
         </div>
+      </div>
+
+      {/* Listado consolidado de Movimientos de la Cuenta */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-bold text-slate-900">Movimientos de la Cuenta</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Historial consolidado de acreditaciones y débitos</p>
+          </div>
+          <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-3 py-1 rounded-full">
+            {[...searchedIncome, ...searchedExpense].length} movimientos
+          </span>
+        </div>
+
+        {[...searchedIncome, ...searchedExpense].length === 0 ? (
+          <div className="text-center py-12 px-4">
+            <p className="text-sm font-semibold text-slate-600">No hay movimientos registrados en este período</p>
+            <p className="text-xs text-slate-400 mt-1">Probá cambiando el filtro de mes o rango de fechas arriba</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50/75 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  <th className="py-3 px-5">Fecha</th>
+                  <th className="py-3 px-5">Descripción</th>
+                  <th className="py-3 px-5">Categoría</th>
+                  <th className="py-3 px-5 text-right">Monto</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {[...searchedIncome, ...searchedExpense]
+                  .sort((a, b) => b.date.localeCompare(a.date))
+                  .map((t) => {
+                    const isInc = t.type === 'income';
+                    return (
+                      <tr key={t.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="py-3.5 px-5 text-xs font-medium text-slate-500 whitespace-nowrap">
+                          {fmtDate(t.date)}
+                        </td>
+                        <td className="py-3.5 px-5">
+                          <p className="font-semibold text-slate-900 text-xs sm:text-sm">{t.description}</p>
+                        </td>
+                        <td className="py-3.5 px-5">
+                          {t.category ? (
+                            <span
+                              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold"
+                              style={{
+                                backgroundColor: `${t.category.color || '#64748B'}15`,
+                                color: t.category.color || '#64748B',
+                              }}
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: t.category.color || '#64748B' }} />
+                              {t.category.name}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-400 italic">Sin categoría</span>
+                          )}
+                        </td>
+                        <td className={`py-3.5 px-5 text-right font-bold whitespace-nowrap text-xs sm:text-sm ${
+                          isInc ? 'text-emerald-600' : 'text-rose-600'
+                        }`}>
+                          {isInc ? '+' : '-'}{formatMoney(Number(t.amount))}
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
