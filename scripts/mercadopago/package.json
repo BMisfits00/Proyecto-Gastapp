@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "login": "node login-interactive.mjs",
     "scrape": "node scraper.mjs",
     "scrape:headed": "node scraper.mjs --headed",
     "scrape:debug": "node scraper.mjs --headed --slow"
