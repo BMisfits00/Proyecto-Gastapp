@@ -548,26 +548,6 @@ export default function AccountsPage() {
                       <span>{syncingGalicia ? 'Sincronizando...' : 'Sincronizar Banco Galicia'}</span>
                     </Button>
                   )}
-
-                  <Button
-                    onClick={() => {
-                      setForm({
-                        name: '',
-                        type: group.type,
-                        provider: group.name,
-                        currency: 'ARS',
-                        balance: '',
-                        has_daily_yield: false,
-                        daily_yield_rate: '',
-                      });
-                      setShowForm(true);
-                    }}
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5 text-xs font-semibold text-blue-700 border-blue-200 hover:bg-blue-50"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> Agregar caja
-                  </Button>
                 </div>
               </div>
 
