@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { spawn }                     from 'child_process';
 import { createServerClient }        from '@supabase/ssr';
 import { cookies }                   from 'next/headers';
-import { existsSync, readFileSync, statSync }  from 'fs';
+import { existsSync, readFileSync, statSync, readdirSync }  from 'fs';
 import path                          from 'path';
 import {
   CategoryRef,
@@ -111,14 +111,17 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Leer el output generado hoy
-  const today      = new Date().toISOString().split('T')[0];
-  const outputFile = path.join(GALICIA_DIR, `output-${today}.json`);
+  // Buscar el archivo de output más reciente
+  const outputFiles = readdirSync(GALICIA_DIR)
+    .filter(f => f.startsWith('output-') && f.endsWith('.json'))
+    .sort()
+    .reverse();
 
-  if (!existsSync(outputFile)) {
-    return NextResponse.json({ error: `No se encontró output-${today}.json. Ejecutá el scraper primero.` }, { status: 500 });
+  if (outputFiles.length === 0) {
+    return NextResponse.json({ error: 'No se encontró ningún archivo de output. Ejecutá el scraper primero.' }, { status: 500 });
   }
 
+  const outputFile = path.join(GALICIA_DIR, outputFiles[0]);
   const fileStat = statSync(outputFile);
   const syncTimestamp = fileStat.mtime.toISOString();
 
@@ -306,7 +309,8 @@ export async function POST(req: NextRequest) {
       let targetAccount: any = null;
 
       if (scrapedAcc.currency === 'USD') {
-        targetAccount = galiciaAccounts.find((a: any) =>
+        targetAccount = (dbAccounts || []).find((a: any) =>
+          (account_id && a.id === account_id) ||
           a.currency === 'USD' ||
           a.name.toLowerCase().includes('dólar') ||
           a.name.toLowerCase().includes('dolar')
@@ -315,15 +319,16 @@ export async function POST(req: NextRequest) {
         scrapedAcc.name.toLowerCase().includes('corriente') ||
         scrapedAcc.name.toLowerCase().includes('cta cte')
       ) {
-        targetAccount = galiciaAccounts.find((a: any) =>
+        targetAccount = (dbAccounts || []).find((a: any) =>
+          (account_id && a.id === account_id) ||
           a.name.toLowerCase().includes('corriente') ||
           a.name.toLowerCase().includes('cta cte')
         );
       } else {
-        targetAccount = galiciaAccounts.find((a: any) =>
-          a.id === account_id ||
-          (a.currency === 'ARS' && !a.name.toLowerCase().includes('corriente'))
-        ) || galiciaAccounts[0];
+        targetAccount = (dbAccounts || []).find((a: any) =>
+          a.id === primaryAccountId ||
+          (a.currency === 'ARS' && !a.name.toLowerCase().includes('corriente') && !a.name.toLowerCase().includes('cta cte'))
+        ) || (dbAccounts || [])[0];
       }
 
       if (!targetAccount) {
