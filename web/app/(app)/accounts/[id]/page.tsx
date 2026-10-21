@@ -912,6 +912,7 @@ export default function AccountDetailPage() {
       {/* Contenido */}
       {(tab === 'balance' || (!isPrimary && (tab === 'card' || tab === 'investments'))) && (
         <BalanceTab
+          accountBalance={Number(account.balance) || 0}
           income={income}
           expenses={expenses}
           card={isPrimary ? card : null}
@@ -1018,6 +1019,7 @@ export default function AccountDetailPage() {
 // ─── Tab: Balance (Comparativa Ejecutiva) ─────────────────────────────────────
 
 function BalanceTab({
+  accountBalance = 0,
   income,
   expenses,
   card,
@@ -1034,6 +1036,7 @@ function BalanceTab({
   search,
   onSearchChange,
 }: {
+  accountBalance?: number;
   income: Transaction[];
   expenses: Transaction[];
   card: CreditCard | null;
@@ -1126,7 +1129,21 @@ function BalanceTab({
       </FilterBar>
 
       {/* Tarjetas métricas comparativas de cabecera */}
-      <div className={`grid grid-cols-1 sm:grid-cols-2 ${isPrimary ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4`}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* En cuentas secundarias (Dólares o Cuenta Corriente), mostrar primero el Saldo Activo */}
+        {!isPrimary && (
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Saldo Disponible</span>
+              <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
+                <Scale size={18} />
+              </div>
+            </div>
+            <p className="text-2xl font-bold text-slate-900 mt-2">{formatMoney(accountBalance)}</p>
+            <p className="text-xs text-slate-400 mt-1 font-medium">Saldo activo en banco</p>
+          </div>
+        )}
+
         {/* Ingresos */}
         <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
           <div className="flex items-center justify-between">
@@ -1151,10 +1168,10 @@ function BalanceTab({
           <p className="text-xs text-slate-400 mt-1 font-medium">{filteredExpense.length} débitos</p>
         </div>
 
-        {/* Flujo Neto / Balance */}
+        {/* Flujo Neto del Período */}
         <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Flujo Neto / Balance</span>
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Flujo Neto del Período</span>
             <div className={`p-2 rounded-lg ${netFlow >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
               <Scale size={18} />
             </div>
@@ -1165,7 +1182,7 @@ function BalanceTab({
           <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded-md mt-1 ${
             netFlow >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
           }`}>
-            {netFlow >= 0 ? 'Superávit en cuenta' : 'Déficit en cuenta'}
+            {netFlow >= 0 ? 'Superávit del período' : 'Déficit del período'}
           </span>
         </div>
 
