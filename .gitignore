@@ -23,6 +23,8 @@ scripts/galicia/cron.log
 
 # Mercado Pago scraper - datos sensibles y outputs
 scripts/mercadopago/credentials.json
+scripts/mercadopago/storage_state.json
+scripts/mercadopago/.user_data/
 scripts/mercadopago/output-*.json
 scripts/mercadopago/debug/
 scripts/mercadopago/cron.log

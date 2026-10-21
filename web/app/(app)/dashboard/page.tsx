@@ -54,8 +54,10 @@ export default function DashboardPage() {
   // Evolución mensual (últimos 6 meses)
   const monthlyMap: Record<string, { mes: string; Ingresos: number; Gastos: number }> = {};
   allTransactions.forEach(t => {
-    const d = new Date(t.date);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    if (!t.date) return;
+    const key = t.date.slice(0, 7);
+    const [y, m] = key.split('-').map(Number);
+    const d = new Date(y, m - 1, 15);
     const label = d.toLocaleString('es-AR', { month: 'short' });
     if (!monthlyMap[key]) monthlyMap[key] = { mes: label, Ingresos: 0, Gastos: 0 };
     if (t.type === 'income') monthlyMap[key].Ingresos += Number(t.amount);

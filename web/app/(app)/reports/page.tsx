@@ -8,13 +8,20 @@ import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   LineChart, Line, XAxis, YAxis, CartesianGrid, Legend,
 } from 'recharts';
-import { TrendingUp, TrendingDown, PiggyBank, PieChart as PieIcon, LineChart as LineIcon } from 'lucide-react';
+import { TrendingUp, TrendingDown, PiggyBank, PieChart as PieIcon, LineChart as LineIcon, Calendar } from 'lucide-react';
 
 const COLORS = ['#1E40AF', '#10B981', '#F59E0B', '#EF4444', '#6366F1', '#06B6D4', '#8B5CF6', '#EC4899'];
 
 export default function ReportsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currency, setCurrency] = useState<'ARS' | 'USD'>('ARS');
+  
+  // Mes seleccionado (por defecto el mes actual en formato YYYY-MM)
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
+  });
 
   useEffect(() => {
     async function load() {
@@ -37,16 +44,42 @@ export default function ReportsPage() {
     load();
   }, []);
 
-  const fmt = (n: number) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n);
+  const fmt = (n: number) => {
+    if (currency === 'USD') {
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n);
+    }
+    return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n);
+  };
 
-  // Gastos por categoría (mes actual)
-  const now = new Date();
-  const currentMonthExpenses = transactions.filter(t =>
-    t.type === 'expense' &&
-    new Date(t.date).getMonth() === now.getMonth() &&
-    new Date(t.date).getFullYear() === now.getFullYear()
-  );
+  // Filtrar transacciones por la moneda seleccionada
+  const currencyTxs = transactions.filter(t => {
+    if (currency === 'USD') return t.currency === 'USD';
+    return t.currency === 'ARS' || !t.currency;
+  });
 
+  // Lista de meses disponibles para seleccionar
+  const availableMonths = Array.from(new Set(
+    currencyTxs.map(t => t.date ? t.date.slice(0, 7) : '').filter(Boolean)
+  )).sort().reverse();
+
+  // Asegurar que si el mes seleccionado no existe en availableMonths, usar el primero disponible o el actual
+  const effectiveMonth = availableMonths.includes(selectedMonth)
+    ? selectedMonth
+    : (availableMonths[0] || selectedMonth);
+
+  // Transacciones del mes seleccionado (usando slice para evitar desfases de zona horaria)
+  const monthTxs = currencyTxs.filter(t => t.date && t.date.startsWith(effectiveMonth));
+
+  // Ingresos y egresos del mes
+  const currentMonthExpenses = monthTxs.filter(t => t.type === 'expense');
+  const monthlyIncome = monthTxs
+    .filter(t => t.type === 'income')
+    .reduce((s, t) => s + Number(t.amount), 0);
+  const monthlyExpense = currentMonthExpenses
+    .reduce((s, t) => s + Number(t.amount), 0);
+  const savingsRate = monthlyIncome > 0 ? ((monthlyIncome - monthlyExpense) / monthlyIncome) * 100 : 0;
+
+  // Gastos por categoría del mes seleccionado
   const byCat: Record<string, { name: string; total: number }> = {};
   currentMonthExpenses.forEach(t => {
     const cat = t.category?.name || 'Sin categoría';
@@ -55,22 +88,25 @@ export default function ReportsPage() {
   });
   const pieData = Object.values(byCat).sort((a, b) => b.total - a.total);
 
-  // Evolución mensual
+  // Evolución mensual histórica (últimos 6 meses)
   const monthlyMap: Record<string, { mes: string; Ingresos: number; Gastos: number }> = {};
-  transactions.forEach(t => {
-    const d = new Date(t.date);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  currencyTxs.forEach(t => {
+    if (!t.date) return;
+    const key = t.date.slice(0, 7); // 'YYYY-MM'
+    const [y, m] = key.split('-').map(Number);
+    const d = new Date(y, m - 1, 15); // Día 15 del mes para evitar cualquier cambio por timezone
     const label = d.toLocaleString('es-AR', { month: 'short', year: '2-digit' });
     if (!monthlyMap[key]) monthlyMap[key] = { mes: label, Ingresos: 0, Gastos: 0 };
     if (t.type === 'income') monthlyMap[key].Ingresos += Number(t.amount);
     if (t.type === 'expense') monthlyMap[key].Gastos += Number(t.amount);
   });
-  const lineData = Object.entries(monthlyMap).sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => v);
+  const lineData = Object.entries(monthlyMap).sort(([a], [b]) => a.localeCompare(b)).slice(-6).map(([, v]) => v);
 
-  // Tasa de ahorro mensual
-  const monthlyIncome = transactions.filter(t => t.type === 'income' && new Date(t.date).getMonth() === now.getMonth() && new Date(t.date).getFullYear() === now.getFullYear()).reduce((s, t) => s + Number(t.amount), 0);
-  const monthlyExpense = transactions.filter(t => t.type === 'expense' && new Date(t.date).getMonth() === now.getMonth() && new Date(t.date).getFullYear() === now.getFullYear()).reduce((s, t) => s + Number(t.amount), 0);
-  const savingsRate = monthlyIncome > 0 ? ((monthlyIncome - monthlyExpense) / monthlyIncome) * 100 : 0;
+  // Etiqueta legible del mes seleccionado
+  const [selYear, selMonthNum] = effectiveMonth.split('-').map(Number);
+  const selDate = new Date(selYear, (selMonthNum || 1) - 1, 15);
+  const monthLabel = selDate.toLocaleString('es-AR', { month: 'long', year: 'numeric' });
+  const capitalizedMonthLabel = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
 
   if (loading) {
     return (
@@ -82,20 +118,76 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Informes & Rendimiento</h1>
-        <p className="text-sm text-slate-500 mt-1">Análisis evolutivo y balance financiero de los últimos 6 meses</p>
+      {/* Header con controles de Moneda y Mes */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Informes & Rendimiento</h1>
+          <p className="text-sm text-slate-500 mt-1">Análisis evolutivo y balance financiero de los últimos 6 meses</p>
+        </div>
+
+        {/* Selector de Moneda y Mes */}
+        <div className="flex items-center gap-2.5">
+          {/* Selector de moneda */}
+          <div className="flex rounded-xl bg-slate-100 p-1 border border-slate-200">
+            <button
+              type="button"
+              onClick={() => setCurrency('ARS')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+                currency === 'ARS'
+                  ? 'bg-white text-blue-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              ARS ($)
+            </button>
+            <button
+              type="button"
+              onClick={() => setCurrency('USD')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+                currency === 'USD'
+                  ? 'bg-white text-emerald-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              USD (U$D)
+            </button>
+          </div>
+
+          {/* Selector de mes */}
+          {availableMonths.length > 0 && (
+            <div className="relative flex items-center">
+              <Calendar className="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none" />
+              <select
+                value={effectiveMonth}
+                onChange={e => setSelectedMonth(e.target.value)}
+                className="pl-8 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 shadow-xs hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {availableMonths.map(ym => {
+                  const [y, m] = ym.split('-').map(Number);
+                  const d = new Date(y, m - 1, 15);
+                  const label = d.toLocaleString('es-AR', { month: 'long', year: 'numeric' });
+                  return (
+                    <option key={ym} value={ym}>
+                      {label.charAt(0).toUpperCase() + label.slice(1)}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Salud financiera del mes */}
+      {/* Salud financiera del mes seleccionado */}
       <Card className="border-slate-200 shadow-xs bg-white">
         <CardHeader className="pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <PiggyBank className="h-5 w-5 text-blue-600" />
-            <CardTitle className="text-base font-semibold text-slate-900">Salud Financiera del Mes en Curso</CardTitle>
+            <CardTitle className="text-base font-semibold text-slate-900">
+              Salud Financiera de {capitalizedMonthLabel}
+            </CardTitle>
           </div>
-          <CardDescription>Resumen del flujo neto y coeficiente de ahorro actual</CardDescription>
+          <CardDescription>Resumen de ingresos, egresos y tasa de ahorro del período ({currency})</CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -105,6 +197,9 @@ export default function ReportsPage() {
                 Ingresos Percibidos
               </div>
               <p className="text-2xl font-bold text-emerald-600">{fmt(monthlyIncome)}</p>
+              <p className="text-[11px] text-slate-400 mt-1 font-medium">
+                {monthTxs.filter(t => t.type === 'income').length} acreditaciones
+              </p>
             </div>
             <div className="rounded-xl bg-slate-50 border border-slate-200/60 p-4 text-center">
               <div className="flex items-center justify-center gap-1.5 text-xs font-medium text-slate-500 mb-1">
@@ -112,11 +207,17 @@ export default function ReportsPage() {
                 Gastos Realizados
               </div>
               <p className="text-2xl font-bold text-rose-600">{fmt(monthlyExpense)}</p>
+              <p className="text-[11px] text-slate-400 mt-1 font-medium">
+                {currentMonthExpenses.length} débitos
+              </p>
             </div>
             <div className="rounded-xl bg-slate-50 border border-slate-200/60 p-4 text-center">
               <p className="text-xs font-medium text-slate-500 mb-1">Capacidad de Ahorro</p>
               <p className={`text-2xl font-bold ${savingsRate >= 20 ? 'text-emerald-600' : savingsRate >= 10 ? 'text-amber-600' : 'text-rose-600'}`}>
                 {savingsRate.toFixed(1)}%
+              </p>
+              <p className="text-[11px] text-slate-400 mt-1 font-medium">
+                Superávit: {fmt(monthlyIncome - monthlyExpense)}
               </p>
             </div>
           </div>
@@ -140,7 +241,7 @@ export default function ReportsPage() {
                 ? '✓ Excelente disciplina y ritmo de ahorro.'
                 : savingsRate >= 10
                 ? 'ℹ Buen ritmo de ahorro. Existe margen de optimización.'
-                : '⚠ Atención: los egresos superan el ratio recomendado.'}
+                : '⚠ Atención: los egresos consumieron casi la totalidad de los ingresos en este mes.'}
             </p>
           </div>
         </CardContent>
@@ -154,11 +255,11 @@ export default function ReportsPage() {
               <PieIcon className="h-5 w-5 text-blue-600" />
               <CardTitle className="text-base font-semibold text-slate-900">Distribución de Gastos por Rubro</CardTitle>
             </div>
-            <CardDescription>Composición porcentual de los egresos del mes actual</CardDescription>
+            <CardDescription>Composición porcentual de los egresos de {capitalizedMonthLabel}</CardDescription>
           </CardHeader>
           <CardContent className="pt-6">
             {pieData.length === 0 ? (
-              <p className="text-slate-400 text-sm text-center py-20 font-medium">Sin egresos registrados este mes</p>
+              <p className="text-slate-400 text-sm text-center py-20 font-medium">Sin egresos registrados en este mes</p>
             ) : (
               <>
                 <ResponsiveContainer width="100%" height={240}>
@@ -211,7 +312,7 @@ export default function ReportsPage() {
               <LineIcon className="h-5 w-5 text-blue-600" />
               <CardTitle className="text-base font-semibold text-slate-900">Evolución Histórica Semestral</CardTitle>
             </div>
-            <CardDescription>Comparativa temporal entre ingresos y egresos</CardDescription>
+            <CardDescription>Comparativa temporal consolidada ({currency})</CardDescription>
           </CardHeader>
           <CardContent className="pt-6">
             <ResponsiveContainer width="100%" height={320}>
